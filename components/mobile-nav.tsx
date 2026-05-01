@@ -3,11 +3,9 @@
 import { useState } from "react"
 
 const NAV_LINKS = [
-  { label: "Platform",     href: "#platform" },
-  { label: "Agents",       href: "#agents" },
-  { label: "Workflow",     href: "#workflow" },
-  { label: "Integrations", href: "#integrations" },
-  { label: "Pricing",      href: "#pricing" },
+  { label: "Platform", href: "#platform" },
+  { label: "Agents",   href: "#agents" },
+  { label: "Workflow", href: "#workflow" },
 ]
 
 const NAV_STYLE = {
