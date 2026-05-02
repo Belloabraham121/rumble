@@ -1,69 +1,73 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { AgentChartCanvas } from "@/components/dashboard/agent-chart-canvas"
 import { AgentCapsulePanel, DEFAULT_BOXES } from "@/components/dashboard/agent-capsule-panel"
 import { DashboardActivityFeed } from "@/components/dashboard/dashboard-activity-feed"
 import { DashboardArenaBoard } from "@/components/dashboard/dashboard-arena-board"
 import { DashboardMetrics } from "@/components/dashboard/dashboard-metrics"
 import { DashboardReplayControls } from "@/components/dashboard/dashboard-replay-controls"
+import { ExpandedModule } from "@/components/dashboard/expandable-module"
 import { MOCK_ARENA_AGENTS } from "@/components/dashboard/mock-arena"
-import { buildActivityFromHit } from "@/components/dashboard/synthesize-activity"
-import type { AgentActivityEvent, ArenaResolutionPayload } from "@/components/dashboard/activity-types"
+import { useAgent, useAgentsStore } from "@/lib/agents/agents-store"
+import type { ArenaResolutionPayload } from "@/components/dashboard/activity-types"
 import type { PriceBox } from "@/components/dashboard/types"
+import type { AgentConfig } from "@/lib/agents/agent-types"
 
-const CURRENT_AGENT = "arena-alpha"
-const MAX_EVENTS = 100
+type Props = {
+  agentId: string
+}
 
-export function DashboardWorkspace() {
+export function DashboardWorkspace({ agentId }: Props) {
+  const agent = useAgent(agentId)
+  const { updateConfig, setStatus, recordResolution, ready } = useAgentsStore()
+
   const [, setBoxes] = useState<PriceBox[]>(DEFAULT_BOXES)
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
-  const [agentStatus, setAgentStatus] = useState<"idle" | "armed" | "running">("running")
   const [livePrice, setLivePrice] = useState(2306.94)
-  const [betAmount, setBetAmount] = useState("0.10")
   const [sidebarOpen, setSidebarOpen] = useState(true)
-
-  const [activity, setActivity] = useState<AgentActivityEvent[]>([])
-  const [totals, setTotals] = useState({ pnlEth: 0, gasGwei: 0, fills: 0, skips: 0 })
 
   const [replayIndex, setReplayIndex] = useState<number | null>(null)
   const [replayPlaying, setReplayPlaying] = useState(false)
 
-  const missSkipRef = useRef(0)
+  const [logExpanded, setLogExpanded] = useState(false)
+  const [arenaExpanded, setArenaExpanded] = useState(false)
 
-  const handleArenaResolution = useCallback((p: ArenaResolutionPayload) => {
-    if (!p.hit) {
-      missSkipRef.current += 1
-      if (missSkipRef.current % 6 !== 0) return
-    } else {
-      missSkipRef.current = 0
-    }
+  const handleArenaResolution = useCallback(
+    (p: ArenaResolutionPayload) => {
+      if (!agentId) return
+      recordResolution(agentId, p)
+    },
+    [agentId, recordResolution],
+  )
 
-    const ev = buildActivityFromHit({ hit: p.hit, mult: p.mult, payoutEth: p.payoutEth })
-    setActivity(prev => [...prev.slice(-(MAX_EVENTS - 1)), ev])
-    setTotals(t => {
-      const g = ev.gasGwei ?? 0
-      if (ev.kind === "box_skipped") {
-        return { ...t, skips: t.skips + 1, gasGwei: t.gasGwei + g }
-      }
-      return {
-        ...t,
-        fills: t.fills + 1,
-        pnlEth: t.pnlEth + (ev.pnlEth ?? 0),
-        gasGwei: t.gasGwei + g,
-      }
-    })
-  }, [])
+  const handleConfigChange = useCallback(
+    (patch: Partial<AgentConfig>) => {
+      if (!agentId) return
+      updateConfig(agentId, patch)
+    },
+    [agentId, updateConfig],
+  )
+
+  const activity = agent?.activity ?? []
+  const totals = agent?.totals ?? { pnlEth: 0, gasGwei: 0, fills: 0, skips: 0 }
+  const agentStatus = agent?.status ?? "paused"
+  const config = agent?.config
+  const betAmount = agent?.config.betAmount ?? "0.10"
 
   const winRate = useMemo(() => {
     const d = totals.fills + totals.skips
     return d > 0 ? totals.fills / d : 0
   }, [totals.fills, totals.skips])
 
+  const currentAgentName = config?.name ?? "arena-alpha"
+
   const arenaAgents = useMemo(() => {
     const scoreBump = Math.floor(totals.fills * 3 + totals.skips * 0.5)
-    return MOCK_ARENA_AGENTS.map(a =>
-      a.name === CURRENT_AGENT
+    const alreadyInList = MOCK_ARENA_AGENTS.some(a => a.name === currentAgentName)
+    const base = MOCK_ARENA_AGENTS.map(a =>
+      a.name === currentAgentName
         ? {
             ...a,
             pnlEth: Number((a.pnlEth + totals.pnlEth * 0.42).toFixed(2)),
@@ -73,7 +77,21 @@ export function DashboardWorkspace() {
           }
         : a,
     )
-  }, [totals.pnlEth, totals.fills, totals.skips, winRate])
+    if (alreadyInList) return base
+    // Insert the current (newly-created) agent alongside the demo roster.
+    return [
+      ...base,
+      {
+        id: agentId,
+        name: currentAgentName,
+        pool: config?.pool ?? "ETH / USDC · 0.05%",
+        pnlEth: Number(totals.pnlEth.toFixed(2)),
+        winRate,
+        actions: totals.fills + totals.skips,
+        score: 450 + scoreBump,
+      },
+    ]
+  }, [totals.pnlEth, totals.fills, totals.skips, winRate, currentAgentName, config?.pool, agentId])
 
   useEffect(() => {
     if (!replayPlaying || activity.length === 0) return
@@ -92,6 +110,27 @@ export function DashboardWorkspace() {
 
   const highlightId =
     replayIndex !== null && replayIndex >= 0 && replayIndex < activity.length ? activity[replayIndex]?.id ?? null : null
+
+  if (!ready) {
+    return <div className="py-12 text-center text-[12px] text-black/40">Loading agent…</div>
+  }
+
+  if (!agent || !config) {
+    return (
+      <div className="max-w-md mx-auto mt-12 rounded-2xl border border-black/10 bg-white/80 px-6 py-8 text-center space-y-3">
+        <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">Agent not found</p>
+        <p className="text-[12px] text-black/50">
+          This agent may have been deleted from another window, or the link is invalid.
+        </p>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-[#111] text-white text-[11px] tracking-widest font-medium hover:bg-[#333]"
+        >
+          ← All agents
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col w-full min-h-[calc(100vh-6rem)] gap-3">
@@ -114,11 +153,11 @@ export function DashboardWorkspace() {
               </svg>
             </button>
             <AgentCapsulePanel
+              config={config}
+              onConfigChange={handleConfigChange}
               agentStatus={agentStatus}
-              onStatusChange={setAgentStatus}
+              onStatusChange={s => setStatus(agentId, s)}
               onApplyBoxes={setBoxes}
-              betAmount={betAmount}
-              onBetAmountChange={setBetAmount}
             />
           </div>
         </aside>
@@ -163,7 +202,11 @@ export function DashboardWorkspace() {
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 shrink-0 min-h-[220px] max-h-[340px] lg:max-h-[360px]">
             <div className="lg:col-span-5 min-h-[180px] lg:min-h-0">
-              <DashboardActivityFeed events={activity} highlightId={highlightId} />
+              <DashboardActivityFeed
+                events={activity}
+                highlightId={highlightId}
+                onExpand={() => setLogExpanded(true)}
+              />
             </div>
             <div className="lg:col-span-4 flex flex-col gap-2 min-h-0">
               <DashboardMetrics
@@ -203,11 +246,37 @@ export function DashboardWorkspace() {
               />
             </div>
             <div className="lg:col-span-3 min-h-[180px] lg:min-h-0">
-              <DashboardArenaBoard agents={arenaAgents} currentAgentName={CURRENT_AGENT} />
+              <DashboardArenaBoard
+                agents={arenaAgents}
+                currentAgentName={currentAgentName}
+                onExpand={() => setArenaExpanded(true)}
+              />
             </div>
           </div>
         </section>
       </div>
+
+      <ExpandedModule
+        open={logExpanded}
+        onClose={() => setLogExpanded(false)}
+        title="Execution log"
+        subtitle={`${activity.length} events · ${config.name}`}
+      >
+        <DashboardActivityFeed events={activity} highlightId={highlightId} variant="lg" />
+      </ExpandedModule>
+
+      <ExpandedModule
+        open={arenaExpanded}
+        onClose={() => setArenaExpanded(false)}
+        title="Arena leaderboard"
+        subtitle={`Ranked across ${arenaAgents.length} agents · ${config.pool}`}
+      >
+        <DashboardArenaBoard
+          agents={arenaAgents}
+          currentAgentName={currentAgentName}
+          variant="lg"
+        />
+      </ExpandedModule>
     </div>
   )
 }

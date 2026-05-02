@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
 import type { PriceBox } from "@/components/dashboard/types"
+import type { AgentConfig, AgentStatus } from "@/lib/agents/agent-types"
 
 export const DEFAULT_BOXES: PriceBox[] = [
   {
@@ -41,26 +41,21 @@ const BAR = {
 } as const
 
 type Props = {
+  config: AgentConfig
+  onConfigChange: (patch: Partial<AgentConfig>) => void
+  agentStatus: AgentStatus
+  onStatusChange: (s: AgentStatus) => void
   onApplyBoxes?: (boxes: PriceBox[]) => void
-  agentStatus: "idle" | "armed" | "running"
-  onStatusChange: (s: "idle" | "armed" | "running") => void
-  betAmount: string
-  onBetAmountChange: (amount: string) => void
 }
 
 function fieldClass() {
   return "w-full bg-white border border-black/10 rounded-lg px-3 py-2 text-xs text-[#111] placeholder:text-black/25 focus:outline-none focus:border-black/25 transition-colors"
 }
 
-export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, betAmount, onBetAmountChange }: Props) {
-  const [name, setName] = useState("arena-alpha")
-  const [goal, setGoal] = useState("Maximize yield on ETH/USDC with tight ranges when volatility is low.")
-  const [capital, setCapital] = useState("2.5")
-  const [token, setToken] = useState("ETH")
-  const [chain, setChain] = useState("base-sepolia")
-  const [pool, setPool] = useState("ETH / USDC · 0.05%")
-  const [slippage, setSlippage] = useState("0.5")
-  const [gasCap, setGasCap] = useState("45")
+export function AgentCapsulePanel({ config, onConfigChange, agentStatus, onStatusChange, onApplyBoxes }: Props) {
+  function set<K extends keyof AgentConfig>(key: K, value: AgentConfig[K]) {
+    onConfigChange({ [key]: value } as Partial<AgentConfig>)
+  }
 
   function seedBoxesFromForm() {
     const base = 52 + Math.random() * 4
@@ -72,7 +67,7 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
         high: base + 1.5,
         action: "add_liquidity",
         color: "#6366f1",
-        hitLabel: `+0.4 ${token} + 1.1k USDC in range`,
+        hitLabel: `+0.4 ${config.token} + 1.1k USDC in range`,
       },
       {
         id: `bx-${Date.now()}-2`,
@@ -99,7 +94,7 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
 
   return (
     <aside
-      className="w-full rounded-3xl border border-black/[0.07] p-4 md:p-5 flex flex-col gap-4 max-h-[calc(100vh-7rem)] overflow-y-auto"
+      className="w-full rounded-3xl border border-black/[0.07] p-4 md:p-5 flex flex-col gap-4"
       style={BAR}
     >
       <div>
@@ -111,7 +106,7 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
           Configure & run
         </h2>
         <p className="mt-1.5 text-[11px] text-black/38 leading-snug">
-          Compact panel — chart stays primary.
+          Changes save automatically — this agent keeps running in the background.
         </p>
       </div>
 
@@ -124,8 +119,8 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
               type="number"
               step="0.01"
               min={0}
-              value={betAmount}
-              onChange={e => onBetAmountChange(e.target.value)}
+              value={config.betAmount}
+              onChange={e => set("betAmount", e.target.value)}
             />
             <span className="inline-flex items-center px-2 rounded-lg bg-black/[0.04] text-[10px] text-black/40 border border-black/10">
               ETH
@@ -134,14 +129,14 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
         </div>
         <div>
           <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Agent name</label>
-          <input className={fieldClass()} value={name} onChange={e => setName(e.target.value)} placeholder="my-gladiator" />
+          <input className={fieldClass()} value={config.name} onChange={e => set("name", e.target.value)} placeholder="my-gladiator" />
         </div>
         <div>
           <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Goal</label>
           <textarea
             className={`${fieldClass()} min-h-[64px] resize-y leading-snug`}
-            value={goal}
-            onChange={e => setGoal(e.target.value)}
+            value={config.goal}
+            onChange={e => set("goal", e.target.value)}
             placeholder="Plain language strategy…"
           />
         </div>
@@ -149,11 +144,18 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Capital</label>
-            <input className={fieldClass()} type="number" step="0.01" min={0} value={capital} onChange={e => setCapital(e.target.value)} />
+            <input
+              className={fieldClass()}
+              type="number"
+              step="0.01"
+              min={0}
+              value={config.capital}
+              onChange={e => set("capital", e.target.value)}
+            />
           </div>
           <div>
             <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Asset</label>
-            <select className={fieldClass()} value={token} onChange={e => setToken(e.target.value)}>
+            <select className={fieldClass()} value={config.token} onChange={e => set("token", e.target.value)}>
               <option value="ETH">ETH</option>
               <option value="WETH">WETH</option>
               <option value="USDC">USDC</option>
@@ -163,7 +165,7 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
 
         <div>
           <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Chain</label>
-          <select className={fieldClass()} value={chain} onChange={e => setChain(e.target.value)}>
+          <select className={fieldClass()} value={config.chain} onChange={e => set("chain", e.target.value)}>
             <option value="base-sepolia">Base Sepolia</option>
             <option value="unichain-sepolia">Unichain Sepolia</option>
           </select>
@@ -171,17 +173,17 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
 
         <div>
           <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Allowed pool</label>
-          <input className={fieldClass()} value={pool} onChange={e => setPool(e.target.value)} />
+          <input className={fieldClass()} value={config.pool} onChange={e => set("pool", e.target.value)} />
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Max slippage %</label>
-            <input className={fieldClass()} value={slippage} onChange={e => setSlippage(e.target.value)} />
+            <input className={fieldClass()} value={config.slippage} onChange={e => set("slippage", e.target.value)} />
           </div>
           <div>
             <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Gas cap (gwei)</label>
-            <input className={fieldClass()} value={gasCap} onChange={e => setGasCap(e.target.value)} />
+            <input className={fieldClass()} value={config.gasCap} onChange={e => set("gasCap", e.target.value)} />
           </div>
         </div>
       </div>
@@ -192,12 +194,12 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
           onClick={() => seedBoxesFromForm()}
           className="w-full px-4 py-2.5 rounded-xl bg-[#111] text-white text-[11px] tracking-widest font-medium hover:bg-[#333] transition-colors"
         >
-          Create agent & place boxes
+          Re-seed target boxes
         </button>
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => onStatusChange(agentStatus === "running" ? "idle" : "running")}
+            onClick={() => onStatusChange(agentStatus === "running" ? "paused" : "running")}
             className="flex-1 py-2 rounded-lg border border-black/10 text-xs text-black/70 hover:bg-black/[0.03] transition-colors tracking-wide"
           >
             {agentStatus === "running" ? "Pause" : "Resume"}
@@ -205,7 +207,7 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
           <button
             type="button"
             onClick={() => {
-              onStatusChange("idle")
+              onStatusChange("paused")
               onApplyBoxes?.(DEFAULT_BOXES)
             }}
             className="flex-1 py-2 rounded-lg border border-black/10 text-xs text-black/70 hover:bg-black/[0.03] transition-colors tracking-wide"
@@ -216,7 +218,7 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, b
       </div>
 
       <p className="text-[9px] text-black/30 leading-relaxed border-t border-black/[0.06] pt-3">
-        Status: <span className="text-black/50">{agentStatus}</span> · Encrypted agent keys & tick loop ship next.
+        Status: <span className="text-black/50">{agentStatus}</span> · Running in background; safe to navigate away.
       </p>
     </aside>
   )

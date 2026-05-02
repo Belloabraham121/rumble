@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { AgentsStoreProvider } from "@/lib/agents/agents-store"
 
 export const metadata: Metadata = {
   title: "Dashboard — ROMBO",
@@ -6,5 +7,5 @@ export const metadata: Metadata = {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  return children
+  return <AgentsStoreProvider>{children}</AgentsStoreProvider>
 }

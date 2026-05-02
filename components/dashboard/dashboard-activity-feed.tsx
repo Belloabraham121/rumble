@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { AgentActivityEvent, ExecutionKind } from "@/components/dashboard/activity-types"
+import { ExpandButton } from "@/components/dashboard/expandable-module"
 
 function kindLabel(kind: ExecutionKind): string {
   switch (kind) {
@@ -36,12 +37,16 @@ function kindTone(kind: ExecutionKind): string {
 type Props = {
   events: AgentActivityEvent[]
   highlightId: string | null
+  onExpand?: () => void
+  /** Compact is the inline module variant; lg is for the modal view. */
+  variant?: "compact" | "lg"
 }
 
 /** Pixels from bottom to still count as "following" the live tail. */
 const STICK_THRESHOLD_PX = 72
 
-export function DashboardActivityFeed({ events, highlightId }: Props) {
+export function DashboardActivityFeed({ events, highlightId, onExpand, variant = "compact" }: Props) {
+  const lg = variant === "lg"
   const listRef = useRef<HTMLUListElement>(null)
   /** True while the user is pinned near the bottom; false after they scroll up to read history. */
   const stickToBottomRef = useRef(true)
@@ -89,15 +94,18 @@ export function DashboardActivityFeed({ events, highlightId }: Props) {
           <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">Execution log</p>
           <p className="text-[10px] text-black/35 mt-0.5">Swaps · liquidity · claims · misses</p>
         </div>
-        {!isFollowing && events.length > 0 && (
-          <button
-            type="button"
-            onClick={jumpToLatest}
-            className="shrink-0 rounded-full border border-emerald-600/25 bg-emerald-50 px-2.5 py-1 text-[9px] tracking-wider uppercase text-emerald-800 hover:bg-emerald-100 transition-colors"
-          >
-            ↓ Latest
-          </button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {!isFollowing && events.length > 0 && (
+            <button
+              type="button"
+              onClick={jumpToLatest}
+              className="rounded-full border border-emerald-600/25 bg-emerald-50 px-2.5 py-1 text-[9px] tracking-wider uppercase text-emerald-800 hover:bg-emerald-100 transition-colors"
+            >
+              ↓ Latest
+            </button>
+          )}
+          {onExpand && !lg && <ExpandButton onClick={onExpand} label="Expand execution log" />}
+        </div>
       </div>
       <ul
         ref={listRef}
@@ -111,20 +119,20 @@ export function DashboardActivityFeed({ events, highlightId }: Props) {
           return (
             <li
               key={ev.id}
-              className={`rounded-xl px-2.5 py-2 text-left transition-colors ${
+              className={`rounded-xl ${lg ? "px-3 py-2.5" : "px-2.5 py-2"} text-left transition-colors ${
                 hi ? "bg-emerald-100/90 ring-1 ring-emerald-400/40" : "bg-white/70 hover:bg-white"
               }`}
             >
               <div className="flex items-start gap-2">
                 <span
-                  className={`shrink-0 mt-0.5 rounded px-1.5 py-0.5 text-[8px] font-semibold tracking-wide border ${kindTone(ev.kind)}`}
+                  className={`shrink-0 mt-0.5 rounded px-1.5 py-0.5 ${lg ? "text-[9px]" : "text-[8px]"} font-semibold tracking-wide border ${kindTone(ev.kind)}`}
                 >
                   {kindLabel(ev.kind)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-medium text-[#111] leading-snug">{ev.title}</p>
-                  <p className="text-[10px] text-black/45 leading-snug mt-0.5">{ev.detail}</p>
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[9px] text-black/35 tabular-nums">
+                  <p className={`${lg ? "text-[12px]" : "text-[11px]"} font-medium text-[#111] leading-snug`}>{ev.title}</p>
+                  <p className={`${lg ? "text-[11px]" : "text-[10px]"} text-black/45 leading-snug mt-0.5`}>{ev.detail}</p>
+                  <div className={`flex flex-wrap gap-x-3 gap-y-0.5 mt-1 ${lg ? "text-[10px]" : "text-[9px]"} text-black/35 tabular-nums`}>
                     <span>{new Date(ev.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
                     {ev.pnlEth != null && <span className={ev.pnlEth >= 0 ? "text-emerald-700/90" : "text-red-700/80"}>Δ {ev.pnlEth >= 0 ? "+" : ""}{ev.pnlEth.toFixed(4)} ETH</span>}
                     {ev.gasGwei != null && <span>{ev.gasGwei} gwei</span>}
