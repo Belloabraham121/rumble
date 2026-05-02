@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server"
 import {
-  agentDocToAgent,
-  findAgentForUser,
-  listAgentsForUser,
-  type AgentDoc,
-} from "@/lib/db/agents.repo"
-import {
   listOnchainReceiptsForAgent,
   listOnchainReceiptsForUser,
 } from "@/lib/db/onchain-receipts.repo"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
-import type { AgentActivityEvent } from "@/components/dashboard/activity-types"
+import { buildLedgerActivityRowsForUser } from "@/lib/agents/activity-join"
 import { getRomboServerEnv } from "@/lib/rombo/server-env"
 
 export type DashboardReceiptDto = {
@@ -28,16 +22,15 @@ export type DashboardReceiptDto = {
 }
 
 /**
- * Unified ledger feed: **on-chain receipts** from Mongo + optional **synthetic** activity
- * persisted with agents (same rows as the arena chart / local simulator when synced).
+ * Unified ledger feed: **on-chain receipts** + **`agent_runs`** execution rows (joined activity).
  *
- * Query: `agentId` — omit or `all` for every agent; `includeSynthetic=true` merges stored activity.
+ * Query: `agentId` — omit or `all` for every agent scope.
  */
 export async function GET(req: Request) {
   const env = getRomboServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json(
-      { error: "MongoDB is not configured.", receipts: [], syntheticEvents: [] },
+      { error: "MongoDB is not configured.", receipts: [], activityEvents: [] },
       { status: 503 },
     )
   }
@@ -49,7 +42,6 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const agentIdParam = url.searchParams.get("agentId")?.trim()
-  const includeSynthetic = url.searchParams.get("includeSynthetic") === "true"
   const receiptLimit = Math.min(
     Math.max(Number(url.searchParams.get("limit")) || 120, 1),
     300,
@@ -80,43 +72,16 @@ export async function GET(req: Request) {
     updatedAt: r.updatedAt.toISOString(),
   }))
 
-  let syntheticEvents: (AgentActivityEvent & {
-    agentId: string
-    agentName: string
-    source: "synthetic"
-  })[] = []
-
-  if (includeSynthetic) {
-    let agentDocs: AgentDoc[] = []
-    if (!agentIdParam || agentIdParam === "all") {
-      agentDocs = await listAgentsForUser(uid)
-    } else {
-      const one = await findAgentForUser(uid, agentIdParam)
-      if (one) agentDocs = [one]
-    }
-
-    for (const doc of agentDocs) {
-      if (!doc) continue
-      const a = agentDocToAgent(doc)
-      for (const ev of a.activity) {
-        syntheticEvents.push({
-          ...ev,
-          agentId: a.id,
-          agentName: a.config.name,
-          source: "synthetic",
-        })
-      }
-    }
-
-    syntheticEvents.sort((x, y) => y.at - x.at)
-    if (syntheticEvents.length > 200) {
-      syntheticEvents = syntheticEvents.slice(0, 200)
-    }
-  }
+  const activityEvents = await buildLedgerActivityRowsForUser({
+    romboUserIdHex: uid,
+    agentId:
+      agentIdParam && agentIdParam !== "all" ? agentIdParam : undefined,
+    limit: receiptLimit,
+  })
 
   return NextResponse.json({
     receipts,
-    syntheticEvents,
+    activityEvents,
     agentId: agentIdParam && agentIdParam !== "all" ? agentIdParam : undefined,
   })
 }

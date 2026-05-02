@@ -31,7 +31,7 @@ export function DashboardReplayControls({
     <div className="rounded-2xl border border-black/[0.07] bg-white/95 px-3 py-2.5 shadow-[0_6px_20px_rgba(0,0,0,0.04)] flex flex-wrap items-center gap-2">
       <div className="min-w-0 flex-1">
         <p className="font-pixel text-[8px] tracking-[0.18em] text-black/40 uppercase">Replay buffer</p>
-        <p className="text-[10px] text-black/35 mt-0.5">Step through recent executions (dashboard mock).</p>
+        <p className="text-[10px] text-black/35 mt-0.5">Step through recent execution-log events.</p>
       </div>
       <span className="text-[10px] tabular-nums text-black/45 shrink-0">{label}</span>
       <div className="flex items-center gap-1 shrink-0">

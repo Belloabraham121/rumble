@@ -68,6 +68,25 @@ export type WalletChainNonceDoc = {
  * Recent successful attempts that broadcast a tx — receipt may still be pending.
  * Used by the cron poller (join with `onchain_receipts` in application code).
  */
+/** Recent audit rows for an agent (swap/quote enrichment). */
+export async function listTradingAttemptsForAgentRecent(
+  agentId: string,
+  limit: number,
+): Promise<TradingAttemptDoc[]> {
+  const db = await getMongoDb()
+  if (!db) return []
+
+  const lim = Math.min(Math.max(limit, 1), 400)
+  const cur = db
+    .collection(COLLECTIONS.tradingAttempts)
+    .find({ agentId })
+    .sort({ createdAt: -1 })
+    .limit(lim)
+
+  const rows = await cur.toArray()
+  return rows as TradingAttemptDoc[]
+}
+
 export async function listTradingAttemptsRecentWithTx(input: {
   limit?: number
   maxAgeMs?: number

@@ -93,6 +93,36 @@ export async function findOnchainReceipt(input: {
   return doc as OnchainReceiptDoc | null
 }
 
+/** Batch lookup keyed by `${chainId}:${txHashLower}` — skips invalid hashes. */
+export async function findOnchainReceiptsForPairs(
+  pairs: Array<{ chainId: number; txHash: string }>,
+): Promise<Map<string, OnchainReceiptDoc>> {
+  const out = new Map<string, OnchainReceiptDoc>()
+  const db = await getMongoDb()
+  if (!db || pairs.length === 0) return out
+
+  const clauses: Record<string, unknown>[] = []
+  for (const p of pairs) {
+    try {
+      const h = normalizeTxHash(p.txHash)
+      clauses.push({ chainId: p.chainId, txHash: h })
+    } catch {
+      continue
+    }
+  }
+  if (clauses.length === 0) return out
+
+  const rows = await db
+    .collection(COLLECTIONS.onchainReceipts)
+    .find({ $or: clauses })
+    .toArray()
+
+  for (const r of rows as OnchainReceiptDoc[]) {
+    out.set(`${r.chainId}:${r.txHash}`, r)
+  }
+  return out
+}
+
 export async function listOnchainReceiptsForAgent(input: {
   agentId: string
   /** When set (dashboard session user), restrict to receipts recorded for that Rombo user. */

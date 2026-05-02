@@ -11,6 +11,7 @@ import { DashboardReplayControls } from "@/components/dashboard/dashboard-replay
 import { ExpandedModule } from "@/components/dashboard/expandable-module";
 import { MOCK_ARENA_AGENTS } from "@/components/dashboard/mock-arena";
 import { useAgent, useAgentsStore } from "@/lib/agents/agents-store";
+import { useAgentActivity } from "@/lib/agents/use-agent-activity";
 import type { PriceBox } from "@/components/dashboard/types";
 import type { AgentConfig } from "@/lib/agents/agent-types";
 import {
@@ -54,6 +55,7 @@ function formatUsdCompact(raw?: string): string {
 
 export function DashboardWorkspace({ agentId }: Props) {
   const agent = useAgent(agentId);
+  const { events: activity } = useAgentActivity(agentId);
   const { updateConfig, updateBoxes, setStatus, ready } = useAgentsStore();
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [livePrice, setLivePrice] = useState(2306.94);
@@ -85,7 +87,6 @@ export function DashboardWorkspace({ agentId }: Props) {
     [agentId, updateBoxes],
   );
 
-  const activity = agent?.activity ?? [];
   const totals = agent?.totals ?? { pnlEth: 0, gasGwei: 0, fills: 0, skips: 0 };
   const agentStatus = agent?.status ?? "paused";
   const config = agent?.config;

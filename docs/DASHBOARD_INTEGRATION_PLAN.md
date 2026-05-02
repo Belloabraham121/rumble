@@ -35,7 +35,7 @@ Practical consequences:
 | Live price badge on chart | `components/dashboard/agent-chart-canvas.tsx` · `getPoolChartSim()` | Deterministic sine + jitter | Subgraph spot (token price) + on‑chain Quoter fallback |
 | Arena chart candles / path | `agent-chart-canvas.tsx` | Pure random walk | `poolHourDatas` / `poolMinuteDatas` subgraph + live tick |
 | Arena resolutions (`hit/mult/payoutEth`) | `agent-chart-canvas.tsx` | Row / column RNG | Derived from **real** swap / LP outcomes at tick time |
-| Execution log entries | `components/dashboard/synthesize-activity.ts` · `buildActivityFromHit()` | Fake `txShort`, `gasGwei`, `pnlEth`, strings | Joined `trading_attempts` + `onchain_receipts` + real explorer link |
+| Execution log entries | `lib/agents/activity-join.ts` · `GET /api/agents/[agentId]/activity` | Was synthetic (`synthesize-activity`, removed) | `agent_runs` + receipt enrich + swap audit excerpts |
 | Per‑agent metrics card | `components/dashboard/dashboard-metrics.tsx` | `agent.totals` (sim) | `GET /api/agents/[agentId]/metrics` |
 | Agent card (grid) stats | `components/dashboard/agent-card.tsx` | Same `totals` | Same metrics endpoint (batched) |
 | Overview KPI plates | `components/dashboard/overview-metrics.tsx` | `GET /api/dashboard/overview` **but** fed by sim `totals` | Real runtime will now write real `totals` |
@@ -191,7 +191,7 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
 | Method | Route | Purpose |
 |---|---|---|
 | GET | `/api/agents/[agentId]/activity?limit=&cursor=` | Real, paginated activity for this agent. |
-| GET | `/api/dashboard/transactions` (existing) | **Change**: drop `syntheticEvents` payload; still supports merging from a recent cursor of real events. |
+| GET | `/api/dashboard/transactions` (existing) | Returns `receipts` + `activityEvents` (from `agent_runs` join); no synthetic payload. |
 
 **Frontend**
 
@@ -202,15 +202,15 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
 - `transactions-view.tsx`:
   - Remove `syntheticRows` — only `onchain` rows now.
   - Add explorer link column (e.g. `basescan.org/tx/...` when `chainId ∈ {8453, 84532}`).
-- Delete `components/dashboard/synthesize-activity.ts` (dummy).
+- ~~Delete `components/dashboard/synthesize-activity.ts`~~ *(done)*.
 
 **TODO**
 
-- [ ] Activity join helper (covers the full `TradingAttemptKind`).
-- [ ] `/api/agents/[agentId]/activity` route.
-- [ ] Add explorer URL helper `lib/onchain/explorer.ts`.
-- [ ] Migrate feed + replay + transactions UI.
-- [ ] Delete `synthesize-activity.ts` and `activity` field mutation from `agents-store`.
+- [x] Activity join helper (`lib/agents/activity-join.ts`) — primary source `agent_runs`; enrich via receipts + swap `trading_attempts`; LP/claim kinds appear when runtime emits them.
+- [x] `GET /api/agents/[agentId]/activity?limit=&cursor=`.
+- [x] Explorer URL helper `lib/onchain/explorer.ts` (Base / Base Sepolia).
+- [x] `use-agent-activity.ts`, workspace feed + replay, transactions view + ledger merge + explorer links.
+- [x] Deleted `synthesize-activity.ts`. Legacy `agent.activity` may still exist in Mongo/local storage until a later cleanup pass.
 
 ---
 
@@ -357,14 +357,14 @@ Once Phase 2–4 land, the visual arena stops simulating hits.
 Once Phases 1–5 ship, delete:
 
 - [ ] `lib/agents/arena-pools.ts` → `getPoolChartSim()` (sim math).
-- [ ] `components/dashboard/synthesize-activity.ts`.
+- [x] `components/dashboard/synthesize-activity.ts` *(removed in Phase 3)*.
 - [ ] `components/dashboard/mock-arena.ts`.
 - [ ] `agents-store`:
   - [ ] Background `setInterval` tick (`simulateBackgroundPayload`).
   - [ ] `perturbRuntimePriceBoxes` drift (keep the user‑edit path only).
   - [ ] `activity` field mutation via `appendResolution`.
   - [ ] `totals` mutation via `applyEventToTotals`.
-- [ ] `transactions-view.tsx` synthetic merge block.
+- [x] `transactions-view.tsx` synthetic merge block *(removed in Phase 3)*.
 - [ ] `dashboard-workspace.tsx` arena merge + `arenaAgents` fabrication.
 - [ ] Subtitles that say "simulated" anywhere in metrics / transactions UI.
 
@@ -488,11 +488,11 @@ GET /api/admin/health
 - [x] Delete client `setInterval` + chart‑driven `recordResolution`.
 
 ### Phase 3 — Real execution log
-- [ ] `activity-join.ts`.
-- [ ] `/api/agents/[agentId]/activity`.
-- [ ] Explorer URL helper.
-- [ ] Swap `DashboardActivityFeed`, `ReplayControls`, `TransactionsView` to real events.
-- [ ] Delete `synthesize-activity.ts` + `agents-store.activity` mutation.
+- [x] `activity-join.ts`.
+- [x] `/api/agents/[agentId]/activity`.
+- [x] Explorer URL helper.
+- [x] Swap `DashboardActivityFeed`, `ReplayControls`, `TransactionsView` to real events.
+- [x] Delete `synthesize-activity.ts` (+ workspace now uses hook; optional later: strip `activity` from sync payloads).
 
 ### Phase 4 — Real metrics
 - [ ] PnL v1 formula + fixtures.

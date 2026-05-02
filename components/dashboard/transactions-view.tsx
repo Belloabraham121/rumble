@@ -5,14 +5,13 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import type { AgentActivityEvent, ExecutionKind } from "@/components/dashboard/activity-types"
 import { formatPnlUsdc } from "@/components/dashboard/pnl-usdc"
+import { transactionExplorerUrl } from "@/lib/onchain/explorer"
 import { useAgentsStore } from "@/lib/agents/agents-store"
-import type { Agent } from "@/lib/agents/agent-types"
 
 type TxRow = AgentActivityEvent & {
   agentId: string
   agentName: string
-  /** Simulator rows omit this; Mongo-backed receipts set `onchain`. */
-  source?: "synthetic" | "onchain"
+  source?: "onchain" | "ledger"
   chainStatus?: "success" | "reverted"
 }
 
@@ -32,6 +31,7 @@ const KIND_LABELS: Record<ExecutionKind, string> = {
   claim_fees: "Claim fees",
   close_position: "Close",
   box_skipped: "Skipped",
+  error: "Error",
 }
 
 const TIME_OPTIONS = [
@@ -42,12 +42,15 @@ const TIME_OPTIONS = [
 ]
 
 function fallbackReason(ev: TxRow): string {
+  if (ev.source === "ledger") {
+    return ev.reason ?? ev.detail
+  }
   if (ev.source === "onchain") {
     return ev.reason ?? (ev.chainStatus === "reverted" ? "Reverted on-chain." : "Confirmed on-chain receipt.")
   }
   if (ev.reason) return ev.reason
   if (ev.kind === "box_skipped") return "No fill: band cleared before route completion."
-  return "Simulator event — merge with on-chain receipts when you POST /api/indexer/receipt after broadcast."
+  return ev.detail
 }
 
 function receiptToTxRow(r: ChainReceiptDto, agentNameById: Record<string, string>): TxRow {
@@ -63,12 +66,14 @@ function receiptToTxRow(r: ChainReceiptDto, agentNameById: Record<string, string
     reason:
       r.status === "reverted"
         ? "Transaction reverted on-chain."
-        : "Settled on-chain — link explorer from tx hash when wired.",
+        : "Confirmed on-chain receipt.",
     agentId,
     agentName,
     source: "onchain",
     chainStatus: r.status,
-    txShort: tx.slice(2, 12),
+    txShort: `${tx.slice(0, 8)}…${tx.slice(-4)}`,
+    txHash: tx,
+    chainId: r.chainId,
     gasGwei: undefined,
   }
 }
@@ -98,6 +103,7 @@ export function TransactionsView() {
   const agentFromUrl = searchParams.get("agent")
 
   const [chainReceipts, setChainReceipts] = useState<ChainReceiptDto[]>([])
+  const [ledgerRows, setLedgerRows] = useState<TxRow[]>([])
 
   const [tabAgentId, setTabAgentId] = useState<string>("all")
   const [timePreset, setTimePreset] = useState<(typeof TIME_OPTIONS)[number]["id"]>("all")
@@ -118,12 +124,16 @@ export function TransactionsView() {
     const agentParam = tabAgentId === "all" ? "all" : tabAgentId
     ;(async () => {
       const r = await fetch(
-        `/api/dashboard/transactions?agentId=${encodeURIComponent(agentParam)}&includeSynthetic=false&limit=150`,
+        `/api/dashboard/transactions?agentId=${encodeURIComponent(agentParam)}&limit=150`,
         { credentials: "same-origin" },
       )
       if (!r.ok || cancelled) return
-      const j = (await r.json()) as { receipts?: ChainReceiptDto[] }
+      const j = (await r.json()) as {
+        receipts?: ChainReceiptDto[]
+        activityEvents?: TxRow[]
+      }
       setChainReceipts(Array.isArray(j.receipts) ? j.receipts : [])
+      setLedgerRows(Array.isArray(j.activityEvents) ? (j.activityEvents as TxRow[]) : [])
     })()
     return () => {
       cancelled = true
@@ -152,21 +162,27 @@ export function TransactionsView() {
 
   const rows = useMemo(() => {
     const now = Date.now()
-    const scope: Agent[] =
-      tabAgentId === "all" ? agents : agents.filter((a) => a.id === tabAgentId)
 
-    const syntheticRows: TxRow[] = scope.flatMap((a) =>
-      a.activity.map((ev) => ({
-        ...ev,
-        agentId: a.id,
-        agentName: a.config.name,
-        source: "synthetic" as const,
-      })),
+    const scopedLedger =
+      tabAgentId === "all"
+        ? ledgerRows
+        : ledgerRows.filter((x) => x.agentId === tabAgentId)
+
+    const ledgerKeys = new Set(
+      scopedLedger
+        .filter((x) => x.txHash && x.chainId !== undefined)
+        .map((x) => `${x.chainId}:${x.txHash!.toLowerCase()}`),
     )
 
-    const chainRows: TxRow[] = chainReceipts.map((r) => receiptToTxRow(r, agentNameById))
+    const chainRows: TxRow[] = chainReceipts
+      .filter((r) => {
+        const tx = r.txHash.startsWith("0x") ? r.txHash : `0x${r.txHash}`
+        const key = `${r.chainId}:${tx.toLowerCase()}`
+        return !ledgerKeys.has(key)
+      })
+      .map((r) => receiptToTxRow(r, agentNameById))
 
-    let list: TxRow[] = [...syntheticRows, ...chainRows]
+    let list: TxRow[] = [...scopedLedger, ...chainRows]
 
     list = list
       .filter((r) => withinPreset(r.at, timePreset, now))
@@ -187,7 +203,17 @@ export function TransactionsView() {
 
     list.sort((a, b) => b.at - a.at)
     return list
-  }, [agents, tabAgentId, timePreset, kindFilter, outcome, search, chainReceipts, agentNameById])
+  }, [
+    agents,
+    tabAgentId,
+    timePreset,
+    kindFilter,
+    outcome,
+    search,
+    chainReceipts,
+    ledgerRows,
+    agentNameById,
+  ])
 
   if (!ready) {
     return (
@@ -206,7 +232,7 @@ export function TransactionsView() {
           Transactions
         </h1>
         <p className="text-[12px] text-black/45 max-w-xl leading-relaxed">
-          Simulator activity merged with on-chain receipts from Mongo. Filter by time, outcome, and type.
+          Execution log from agent runtime plus on-chain receipts. Filter by time, outcome, and type.
         </p>
       </header>
 
@@ -313,7 +339,11 @@ export function TransactionsView() {
                 <div className="min-w-0 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-md bg-black/[0.06] px-2 py-0.5 font-pixel text-[8px] tracking-widest text-black/50 uppercase">
-                      {r.source === "onchain" ? "CHAIN" : KIND_LABELS[r.kind]}
+                      {r.source === "onchain"
+                        ? "CHAIN"
+                        : r.source === "ledger"
+                          ? "EXEC"
+                          : KIND_LABELS[r.kind]}
                     </span>
                     {tabAgentId === "all" && (
                       <Link
@@ -351,10 +381,19 @@ export function TransactionsView() {
                     Gas <span className="tabular-nums text-black/55">{r.gasGwei.toFixed(0)} gwei</span>
                   </span>
                 )}
-                {r.txShort && (
-                  <span className="font-mono text-[10px] text-black/35" title="Placeholder until Base explorer link">
-                    {r.txShort}
-                  </span>
+                {r.txHash && r.chainId && transactionExplorerUrl(r.chainId, r.txHash) ? (
+                  <a
+                    href={transactionExplorerUrl(r.chainId, r.txHash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-emerald-800/90 hover:underline font-mono"
+                  >
+                    {r.txShort ?? `${r.txHash.slice(0, 8)}…`}
+                  </a>
+                ) : (
+                  r.txShort && (
+                    <span className="font-mono text-[10px] text-black/35">{r.txShort}</span>
+                  )
                 )}
                 {r.agentId !== "unknown" && (
                   <Link

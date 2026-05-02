@@ -1,5 +1,12 @@
-/** Dashboard-only activity log (mock execution lines until backend exists). */
-export type ExecutionKind = "swap" | "add_liquidity" | "remove_liquidity" | "claim_fees" | "close_position" | "box_skipped"
+/** Execution log row kinds (arena + on-chain join). */
+export type ExecutionKind =
+  | "swap"
+  | "add_liquidity"
+  | "remove_liquidity"
+  | "claim_fees"
+  | "close_position"
+  | "box_skipped"
+  | "error"
 
 /** Emitted when a scrolling box resolves at the head column (chart → activity feed). */
 export type ArenaResolutionPayload = {
@@ -29,4 +36,7 @@ export type AgentActivityEvent = {
   pnlEth?: number
   gasGwei?: number
   txShort?: string
+  txHash?: string
+  chainId?: number
+  blockNumber?: number
 }

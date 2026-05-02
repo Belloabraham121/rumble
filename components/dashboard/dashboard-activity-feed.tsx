@@ -19,6 +19,8 @@ function kindLabel(kind: ExecutionKind): string {
       return "CLOSE"
     case "box_skipped":
       return "SKIP"
+    case "error":
+      return "ERR"
     default:
       return "EVT"
   }
@@ -28,6 +30,8 @@ function kindTone(kind: ExecutionKind): string {
   switch (kind) {
     case "box_skipped":
       return "bg-black/[0.06] text-black/45 border-black/10"
+    case "error":
+      return "bg-red-50 text-red-900/90 border-red-200/60"
     case "close_position":
       return "bg-amber-50 text-amber-900/90 border-amber-200/60"
     default:
@@ -113,7 +117,9 @@ export function DashboardActivityFeed({ events, highlightId, onExpand, variant =
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 py-2 space-y-1.5"
       >
         {events.length === 0 && (
-          <li className="px-2 py-6 text-center text-[11px] text-black/35">Hits on the chart append here in real time.</li>
+          <li className="px-2 py-6 text-center text-[11px] text-black/35">
+            Execution rows appear when the server-side agent tick runs (live arena data).
+          </li>
         )}
         {events.map(ev => {
           const hi = highlightId === ev.id

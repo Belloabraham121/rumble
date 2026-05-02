@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { ObjectId } from "mongodb"
+import { ObjectId } from "mongodb"
 import { COLLECTIONS } from "@/lib/db/collections"
 import { getMongoDb } from "@/lib/db/mongo-client"
 
@@ -71,6 +71,97 @@ export async function listAgentRuns(input: {
     .collection(COLLECTIONS.agentRuns)
     .find(filter)
     .sort({ createdAt: -1 })
+    .limit(lim)
+    .toArray()
+
+  return rows as AgentRunDoc[]
+}
+
+export type AgentRunCursorPayload = { beforeTime: number; beforeId: string }
+
+function encodeAgentRunCursor(run: AgentRunDoc): string {
+  const payload: AgentRunCursorPayload = {
+    beforeTime: run.createdAt.getTime(),
+    beforeId: run._id.toHexString(),
+  }
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url")
+}
+
+function decodeAgentRunCursor(raw: string): AgentRunCursorPayload | null {
+  try {
+    const j = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as AgentRunCursorPayload
+    if (typeof j.beforeTime !== "number" || typeof j.beforeId !== "string") return null
+    return j
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Newest-first internal fetch, returned **oldest → newest** for execution-log UI.
+ * `cursor` loads runs older than the encoded boundary (infinite scroll “past”).
+ */
+export async function listAgentRunsAscendingPage(input: {
+  agentId: string
+  romboUserIdHex: string
+  limit: number
+  cursor?: string
+}): Promise<{ runs: AgentRunDoc[]; nextCursor: string | null }> {
+  const db = await getMongoDb()
+  if (!db) return { runs: [], nextCursor: null }
+  await ensureAgentRunIndexes()
+
+  const lim = Math.min(Math.max(input.limit, 1), 120)
+  const base: Record<string, unknown> = {
+    agentId: input.agentId,
+    romboUserIdHex: input.romboUserIdHex,
+  }
+
+  const decoded = input.cursor ? decodeAgentRunCursor(input.cursor) : null
+  if (decoded) {
+    const oid = ObjectId.createFromHexString(decoded.beforeId)
+    const dt = new Date(decoded.beforeTime)
+    base.$or = [
+      { createdAt: { $lt: dt } },
+      { createdAt: dt, _id: { $lt: oid } },
+    ]
+  }
+
+  const rows = await db
+    .collection(COLLECTIONS.agentRuns)
+    .find(base)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(lim)
+    .toArray()
+
+  const desc = rows as AgentRunDoc[]
+  const asc = desc.slice().reverse()
+  const nextCursor =
+    desc.length === lim && asc.length > 0 ? encodeAgentRunCursor(asc[0]!) : null
+
+  return { runs: asc, nextCursor }
+}
+
+/** Ledger merge — newest first. */
+export async function listAgentRunsForUserLedger(input: {
+  romboUserIdHex: string
+  agentId?: string
+  limit: number
+}): Promise<AgentRunDoc[]> {
+  const db = await getMongoDb()
+  if (!db) return []
+  await ensureAgentRunIndexes()
+
+  const lim = Math.min(Math.max(input.limit, 1), 250)
+  const filter: Record<string, unknown> = { romboUserIdHex: input.romboUserIdHex }
+  if (input.agentId) {
+    filter.agentId = input.agentId
+  }
+
+  const rows = await db
+    .collection(COLLECTIONS.agentRuns)
+    .find(filter)
+    .sort({ createdAt: -1, _id: -1 })
     .limit(lim)
     .toArray()
 
