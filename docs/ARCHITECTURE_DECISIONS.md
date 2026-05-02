@@ -53,6 +53,7 @@ UI today offers **Base Sepolia** and **Unichain Sepolia** in agent settings; num
 | `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | Privy server SDK / REST for users & wallets |
 | `PRIVY_WALLET_AUTHORIZATION_PRIVATE_KEY` | Signs Privy Wallet API requests for **agent/automation** paths |
 | `UNISWAP_API_KEY` | `x-api-key` for Trading + Liquidity APIs |
+| `UNISWAP_UNIVERSAL_ROUTER_VERSION` | Optional — **`x-universal-router-version`** header (default `2.0`); must stay aligned across `/quote` and `/swap` |
 
 **Storage rule:** Production uses **environment variables** injected by the host (Vercel, Fly, etc.) or **KMS / secrets manager** for the authorization private key — **never** commit real values.
 
@@ -71,6 +72,8 @@ UI today offers **Base Sepolia** and **Unichain Sepolia** in agent settings; num
 | `users` | Stable user id, email, timestamps; optional `privyUserId` after bridge |
 | `agents` | Server-authoritative agent records when you sync off localStorage — config, wallet refs |
 | `transactions` | Onchain-backed execution rows (hash, chain id, agent id, kind, metadata) |
+| `trading_attempts` | Uniswap **`requestId`**, hashed payloads / calldata, routing, optional quote deadlines, errors (`lib/db/trading.repo.ts`) |
+| `wallet_chain_nonces` | Last broadcast **nonce** (+ optional tx hash) per wallet + chain for reconciliation |
 | `sessions` | Optional if you move beyond cookie-only auth |
 
 **Env:** `MONGODB_URI` is read in `getRomboServerEnv()` as `mongodbUri` with **`hasMongo`** when set.
@@ -86,7 +89,10 @@ UI today offers **Base Sepolia** and **Unichain Sepolia** in agent settings; num
 | `lib/rombo/chain-config.ts` | Slug ↔ chain id |
 | `lib/rombo/wallet-model.ts` | Agent wallet model enum + parser |
 | `lib/rombo/server-env.ts` | Validates env (incl. `MONGODB_URI`); exposes typed flags |
-| `lib/db/mongo-client.ts`, `lib/db/users.repo.ts`, `lib/db/agent-wallets.repo.ts` | Mongo persistence for users + agent wallets |
+| `lib/db/mongo-client.ts`, `lib/db/users.repo.ts`, `lib/db/agent-wallets.repo.ts`, `lib/db/trading.repo.ts` | Mongo persistence for users, agent wallets, trading audit rows |
+| `lib/trading/arena-pool-onchain.ts` | Arena pool id → chain id, **v3 fee tier**, token pair addresses |
+| `lib/api/trading-audit.ts`, `lib/api/trading-meta.ts` | Session audit identity + strip Rombo-only JSON fields before Uniswap |
+| `lib/integrations/uniswap/retry.ts`, `quote-metadata.ts` | Transient retry backoff + **`requestId`** / deadline / calldata hashing |
 | `lib/integrations/privy/bridge-user.ts`, `agent-wallet.ts`, `wallet-signing.ts` | Privy user bridge, agent wallets, server signing |
 
 ---

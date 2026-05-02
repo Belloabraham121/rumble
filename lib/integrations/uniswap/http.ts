@@ -18,6 +18,8 @@ export type FetchUniswapOptions = RequestInit & {
 
 /**
  * Authenticated fetch toward Uniswap Labs APIs with per-process rate shaping and stable errors.
+ * Used for **Trading** (`trade-api.gateway.uniswap.org`) and **Liquidity** (`liquidity.api.uniswap.org`) —
+ * they share the same API key and process-local ~5 RPS limiter (budget ~6 RPS per key).
  * Requires `UNISWAP_API_KEY` (throws `RomboUniswapError` `UNISWAP_MISSING_API_KEY` before network if unset).
  */
 export async function fetchUniswap(input: RequestInfo | URL, init?: FetchUniswapOptions): Promise<Response> {

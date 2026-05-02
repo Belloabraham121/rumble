@@ -9,7 +9,7 @@ Operational notes distilled from **official Uniswap Developer docs** ([Trading A
 | API surface | Typical base (confirm in current docs) | Auth |
 |-------------|----------------------------------------|------|
 | **Trading API** (swap, quote, approvals, orders) | `https://trade-api.gateway.uniswap.org/v1` | Header **`x-api-key: <your-key>`** on every request |
-| **Liquidity provisioning API** | See [Liquidity API reference](https://developers.uniswap.org/docs/api-reference) — hosts may differ from Trading API | Same **`x-api-key`** pattern on Uniswap Developer Platform keys |
+| **Liquidity provisioning API** | Default host **`https://liquidity.api.uniswap.org`** (`/lp/*` — confirm in [API reference](https://developers.uniswap.org/docs/api-reference)); override via **`UNISWAP_LIQUIDITY_API_BASE`** | Same **`x-api-key`** pattern on Uniswap Developer Platform keys |
 
 Obtain keys from the [Uniswap Developer Dashboard](https://developers.uniswap.org/dashboard). Store as `UNISWAP_API_KEY` server-side only (`lib/rombo/server-env.ts`).
 
@@ -41,15 +41,18 @@ Per [Troubleshooting — Rate limits](https://developers.uniswap.org/docs/tradin
 
 | Piece | Location |
 |-------|----------|
-| Rate shaping (~5 RPS default) | `lib/integrations/uniswap/rate-limiter.ts` |
+| Rate shaping (~5 RPS default, shared **Trading + Liquidity**) | `lib/integrations/uniswap/rate-limiter.ts` |
 | Stable error codes (`UNISWAP_RATE_LIMITED`, `UNISWAP_NO_QUOTE`, …) | `lib/integrations/uniswap/errors.ts` |
 | Authenticated `fetch` + JSON helper | `lib/integrations/uniswap/http.ts` (`fetchUniswap`, `readUniswapJsonOrThrow`) |
+| Liquidity `/lp/*` client | `lib/integrations/uniswap/liquidity.ts` |
+| Session API passthrough + audit | `POST /api/liquidity/[action]` (`check-approval`, `create`, `increase`, `decrease`, `claim`, `migrate`, `claim-rewards`) |
 
 **Stable Rombo codes** (inspect `error.code` on `RomboUniswapError`): `UNISWAP_MISSING_API_KEY`, `UNISWAP_RATE_LIMITED`, `UNISWAP_NO_QUOTE`, `UNISWAP_VALIDATION`, `UNISWAP_UNAUTHORIZED`, `UNISWAP_SERVER_ERROR`, `UNISWAP_GATEWAY_TIMEOUT`, `UNISWAP_NETWORK`, `UNISWAP_UNKNOWN`.
 
 **To-dos:**
 
-- [ ] Route all Trading/LP HTTP traffic through **`fetchUniswap`** so one process stays under the default **6 RPS** budget.
+- [x] Route Trading **`/check_approval`**, **`/quote`**, **`/swap`**, **`/order`** through **`fetchUniswap`** — `lib/integrations/uniswap/trading.ts`.
+- [x] Route Liquidity **`/lp/*`** through **`fetchUniswap`** — `lib/integrations/uniswap/liquidity.ts`.
 - [ ] Catch **`RomboUniswapError`** by **`error.code`** (`UNISWAP_*`) for UI and retries; on **429**, backoff globally for that API key — **never** spin tight loops.
 - [ ] Log **`requestId`** from JSON bodies when present (failed responses may include it — see `classifyUniswapHttpFailure`).
 

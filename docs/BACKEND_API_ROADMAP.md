@@ -88,17 +88,17 @@ Use the official Privy docs for exact routes; typical areas include:
 
 ### 3.1 Implementation checklist
 
-- [ ] Obtain **Uniswap API key** from [Uniswap developer dashboard](https://developers.uniswap.org/).
-- [ ] Server module: **`POST .../check_approval`** — inputs: token, wallet, chain, spend approval context.
-- [ ] Server module: **`POST .../quote`** — align with Rombo **slippage**, **token**, **chain**, **pool** config from `AgentConfig`.
-- [ ] Server module: **`POST .../swap` or `.../order`** — based on quote routing (`CLASSIC` vs UniswapX); submit signed payload from Privy-backed wallet.
-- [ ] **Minimum quote thresholds** — UniswapX has min notionals on L1/L2; handle “no quotes” in UI.
-- [ ] **Idempotency / retries** — quote expiry, nonce handling, failed broadcast reconciliation.
+- [x] Obtain **Uniswap API key** from [Uniswap developer dashboard](https://developers.uniswap.org/) — `UNISWAP_API_KEY` / `getRomboServerEnv().hasUniswap`.
+- [x] Server module: **`POST .../check_approval`** — `uniswapCheckApproval` (`lib/integrations/uniswap/trading.ts`); route **`POST /api/trading/check-approval`**.
+- [x] Server module: **`POST .../quote`** — `uniswapQuote` + **`buildAgentQuoteRequestBody`** (`agent-quote.ts`) for Rombo **slippage** / **chain** / token symbols; route **`POST /api/trading/quote`** (`agentConfig` shorthand or raw Trading API body).
+- [x] Server module: **`POST .../swap` or `.../order`** — `uniswapCreateSwap` / `uniswapPostOrder`; **`submitSignedSwapOrOrder`** + **`POST /api/trading/execute`** (signature + prior quote response). Privy broadcast remains a separate step (sign + `eth_sendTransaction` / order submit).
+- [x] **Minimum quote thresholds** — constants `UNISWAPX_MIN_NOTIONAL_USD_*` in `lib/integrations/uniswap/constants.ts`; **404 / no quote** still mapped via `RomboUniswapError` (`UNISWAP_API_REFERENCE.md`).
+- [x] **Idempotency / retries** — `withUniswapRetry` (`lib/integrations/uniswap/retry.ts`) for 429/5xx/504/network; **`extractQuoteDeadline`** on quote payloads; optional **`broadcastNonce`** + **`walletAddress`** + **`chainId`** on API bodies upserts **`wallet_chain_nonces`**; audit rows capture failures for reconciliation.
 
 ### 3.2 Sub-todos — data you must persist (MongoDB)
 
-- [ ] Map **Rombo arena pool** labels → **chain id + token addresses + fee tier / pool id** for quotes.
-- [ ] Store **last quote id / calldata hash** for debugging and replay tooling (Mongo collections per `docs/ARCHITECTURE_DECISIONS.md` §5).
+- [x] Map **Rombo arena pool** labels → **chain id + token addresses + fee tier** — `lib/trading/arena-pool-onchain.ts` (+ optional **`arenaPoolId`** / **`arenaDirection`** on **`POST /api/trading/quote`** agent mode).
+- [x] Store **request id / payload & calldata hashes** — `trading_attempts` via `insertTradingAttempt` / `logTradingAudit` (`lib/db/trading.repo.ts`, `lib/api/trading-audit.ts`); hashes use **`hashPayloadForAudit`** (`quote-metadata.ts`).
 
 ### 3.3 Rate limits, headers & HTTP errors (Trading API)
 
@@ -112,6 +112,8 @@ Summarized from Uniswap’s official **Troubleshooting** doc — full tables and
 | **400** | Validation — missing fields, malformed addresses, bad enums. |
 | **404** | Often “No quotes available” — min **UniswapX** notionals (e.g. **~1000 USDC eq on Base/L2**, **~300** on L1), wrong chain/token pairing, or illegal bridge+swap combo. |
 | **500 / 504** | Server/gateway — retry with backoff. |
+
+**Rombo:** Same headers + **`fetchUniswap`** stack as Trading (`lib/integrations/uniswap/http.ts`); **429 / 5xx / 504** retried via **`withUniswapRetry`** (`retry.ts`). Liquidity shares the process rate limiter (~5 RPS under the platform **6 RPS** cap).
 
 ---
 
@@ -127,15 +129,23 @@ Official flow ([Liquidity getting started](https://developers.uniswap.org/docs/l
 
 Endpoint names and hosts: always use the current [API reference](https://developers.uniswap.org/docs/api-reference). **Creating pairs** is covered by the **create LP position** response when the pool is missing (no separate “create pair” hack).
 
+**Rombo implementation**
+
+| Piece | Location |
+|-------|----------|
+| LP HTTP client (`/lp/check_approval`, `/lp/create`, `/lp/increase`, …) | `lib/integrations/uniswap/liquidity.ts` |
+| Authenticated routes + audit (`trading_attempts` kinds `lp_*`) | `POST /api/liquidity/[action]` |
+| Optional Liquidity base URL override | `UNISWAP_LIQUIDITY_API_BASE` / `getRomboServerEnv().liquidityApiBase` |
+
 ### 4.1 Liquidity API — errors & rate limits
 
 Same **`x-api-key`** and **header discipline** as Trading API; share the **6 RPS** budget across swap + LP clients unless your dashboard says otherwise. LP-specific **400**s usually mean bad ranges, protocol mismatch, or missing position id — see **[`docs/UNISWAP_API_REFERENCE.md`](./UNISWAP_API_REFERENCE.md) §5–6**.
 
 ### 4.2 Sub-todos
 
-- [ ] Map Rombo **price boxes** → onchain **tick ranges** for the chosen pool (protocol math via SDK or API-provided helpers).
-- [ ] Persist **position NFT token id** per agent + pool in **MongoDB**.
-- [ ] Handle **IL / rebalance** policies as Privy policy + app logic.
+- [x] Map Rombo **price boxes** → chart **USD band** (bridge to LP `priceBounds` / ticks still needs pool math) — `lib/liquidity/price-box-bounds.ts`.
+- [x] Persist **position NFT token id** per agent + pool in **MongoDB** — collection **`lp_positions`** (`lib/db/lp-positions.repo.ts`), upsert after successful **`lp_create` / `lp_increase`** when the API returns an id (`lib/api/liquidity-persist.ts`).
+- [x] Handle **IL / rebalance** policies as Privy policy + app logic — **`getLpPolicyHints`** (`lib/liquidity/lp-policies.ts`) surfaces **`PRIVY_DEFAULT_POLICY_IDS`** + optional **`ROMBO_LP_REBALANCE_POLICY`**; enforce moves in product/agents as needed.
 
 ---
 
@@ -143,9 +153,9 @@ Same **`x-api-key`** and **header discipline** as Trading API; share the **6 RPS
 
 Persist indexed rows to **MongoDB** for API reads from the dashboard.
 
-- [ ] **Subgraph or Uniswap data APIs** — pool TVL, fees, historical swaps for leaderboard accuracy (see mechanics: shared environment).
-- [ ] **Transaction receipts** — map Rombo “Execution log / Transactions” rows to **real tx hashes**, block time, gas used.
-- [ ] **Webhooks or polling** — update agent PnL from onchain events.
+- [x] **Subgraph or Uniswap data APIs** — **`UNISWAP_V3_SUBGRAPH_URL`** + **`fetchV3PoolStatsByAddress` / `fetchV3PoolStatsByPair`** (`lib/integrations/uniswap/subgraph.ts`); cache in **`indexed_pool_snapshots`** (`lib/db/indexed-pool-snapshots.repo.ts`); **`GET /api/data/pool-snapshot?chainId=&arenaPoolId=`** or **`poolAddress=`**.
+- [x] **Transaction receipts** — **`onchain_receipts`** collection (`lib/db/onchain-receipts.repo.ts`); **`POST /api/indexer/receipt`** (session) after broadcast; **`GET /api/indexer/receipts?agentId=`** (scoped to the signed-in user’s `romboUserIdHex`).
+- [x] **Webhooks or polling** — **`POST /api/indexer/webhook`** with header **`x-rombo-webhook-secret`** + **`ROMBO_INDEXER_WEBHOOK_SECRET`**; optional **`idempotencyKey`** on the body. RPC polling pattern noted in **`lib/indexer/poll-receipt.ts`** (worker → POST receipt). **PnL rollups** from events remain product logic on top of stored receipts.
 
 ---
 
@@ -153,11 +163,11 @@ Persist indexed rows to **MongoDB** for API reads from the dashboard.
 
 | Feature (current UI) | Backend work |
 |---------------------|--------------|
-| Multi-pool agent config (`tradeAllPools`, `enabledPoolIds`) | Resolve to token addresses + pool ids; enforce in quote/LP calls |
-| Chart + arena resolutions | Optional: drive from live price feed instead of sim only |
-| Activity / Transactions pages | Persist events from webhook indexer + link Privy wallet + Uniswap tx |
-| Runtime price boxes | Optional: translate hits into signed swap/LP txs within policies |
-| Leaderboard / PnL in USDC display | Compute from onchain balances + oracle for USD |
+| Multi-pool agent config (`tradeAllPools`, `enabledPoolIds`) | [partial] **`getArenaPoolOnChain`** + **`arenaPoolId`** on Trading routes — extend validation everywhere quotes/LP run |
+| Chart + arena resolutions | Optional: **`GET /api/data/pool-snapshot`** + oracle/subgraph-driven prices vs sim-only chart |
+| Activity / Transactions pages | [partial] Receipt store + list API — wire **`transactions-view`** to **`/api/indexer/receipts`** + merge with client activity when ready |
+| Runtime price boxes | Trading/LP APIs + Privy sign — policy hints in **`getLpPolicyHints`** |
+| Leaderboard / PnL in USDC display | Pool TVL/fees from subgraph snapshot + receipts; USD oracle TBD |
 
 ---
 
