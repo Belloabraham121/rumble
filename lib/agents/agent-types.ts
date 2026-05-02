@@ -1,5 +1,11 @@
 import type { AgentActivityEvent } from "@/components/dashboard/activity-types"
 import type { PriceBox } from "@/components/dashboard/types"
+import {
+  getTradableArenaPools,
+  inferArenaPoolFromLegacyFields,
+  normalizeEnabledPoolIds,
+  type ArenaPoolId,
+} from "@/lib/agents/arena-pools"
 
 export type AgentStatus = "running" | "paused"
 
@@ -40,6 +46,10 @@ export type AgentConfig = {
    * dynamic runtime behavior (UI-only; no backend).
    */
   runtimeBoxesLive: boolean
+  /** When true, agent may use every canonical arena pool (`mechanics.md`). */
+  tradeAllPools: boolean
+  /** Subset of arena pool ids — ignored when `tradeAllPools` is true. */
+  enabledPoolIds: ArenaPoolId[]
 }
 
 export type AgentTotals = {
@@ -124,6 +134,8 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   reflectionDepth: "standard",
   fundingWalletNote: "",
   runtimeBoxesLive: false,
+  tradeAllPools: false,
+  enabledPoolIds: ["eth-usdc"],
 }
 
 /** Merge persisted config with current schema (localStorage migration). */
@@ -145,7 +157,20 @@ export function migrateAgentConfig(partial: Partial<AgentConfig> & Record<string
       merged.feeTier = partial.pool.slice(idx + 3).trim()
     }
   }
-  merged.pool = formatPoolLabel(merged.basePair, merged.feeTier)
+  merged.tradeAllPools = typeof partial.tradeAllPools === "boolean" ? partial.tradeAllPools : false
+
+  if (!partial.enabledPoolIds || !Array.isArray(partial.enabledPoolIds)) {
+    merged.enabledPoolIds = [inferArenaPoolFromLegacyFields(merged).id]
+  } else {
+    merged.enabledPoolIds = normalizeEnabledPoolIds(partial.enabledPoolIds)
+  }
+
+  const primary =
+    getTradableArenaPools(merged.tradeAllPools, merged.enabledPoolIds)[0] ??
+    inferArenaPoolFromLegacyFields(merged)
+  merged.basePair = primary.basePair
+  merged.feeTier = primary.feeTier
+  merged.pool = formatPoolLabel(primary.basePair, primary.feeTier)
   return merged
 }
 

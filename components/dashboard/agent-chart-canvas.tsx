@@ -1,14 +1,17 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import type { ArenaResolutionPayload } from "@/components/dashboard/activity-types"
 import { chartTheme as T } from "@/components/dashboard/chart-theme"
+import { getPoolChartSim } from "@/lib/agents/arena-pools"
 
 type Props = {
   selectedTargetId: string | null
   onSelectTarget: (id: string | null) => void
   betAmount: string
   paused?: boolean
+  /** Canonical arena pool — drives sim Price path + quote (`mechanics.md`). */
+  poolId?: string
   onPriceUpdate?: (usdPrice: number) => void
   /** Fires once per box when it resolves at the head (hit or miss). */
   onArenaResolution?: (payload: ArenaResolutionPayload) => void
@@ -43,10 +46,6 @@ type TargetBox = {
 function priceToY(price: number, minP: number, maxP: number) {
   const n = (price - minP) / (maxP - minP)
   return PAD.t + (1 - n) * (H - PAD.t - PAD.b)
-}
-
-function usdFromSim(p: number) {
-  return 2306.94 + (p - 54) * 14.2
 }
 
 function rowForPrice(p: number, minP: number, maxP: number) {
@@ -84,9 +83,18 @@ export function AgentChartCanvas({
   onSelectTarget,
   betAmount,
   paused = false,
+  poolId = "eth-usdc",
   onPriceUpdate,
   onArenaResolution,
 }: Props) {
+  const uid = useId().replace(/:/g, "")
+  const lineGlowId = `${uid}-lineGlow`
+  const cellGlowLightId = `${uid}-cellGlowLight`
+  const areaFillId = `${uid}-areaFill`
+  const trailFadeId = `${uid}-trailFade`
+
+  const poolSim = useMemo(() => getPoolChartSim(poolId), [poolId])
+
   const gl = PAD.l
   const chartRight = W - PAD.r
   const gridTop = PAD.t
@@ -165,11 +173,15 @@ export function AgentChartCanvas({
       tRef.current += 1
       const t = tRef.current * 0.02
       const noise = (Math.random() - 0.5) * 0.5
-      const next = 54 + Math.sin(t) * 10 + Math.cos(t * 0.73) * 4 + noise
+      const next =
+        poolSim.mid +
+        Math.sin(t + poolSim.phase) * poolSim.amp +
+        Math.cos(t * 0.73 + poolSim.phase * 0.5) * (poolSim.amp * 0.42) +
+        noise
       const nextRow = rowForPrice(next, minP, maxP)
 
       setCurrentP(next)
-      onPriceUpdate?.(usdFromSim(next))
+      onPriceUpdate?.(poolSim.usdFromSim(next))
       setHistory(h => {
         const lastX = h[h.length - 1]?.x ?? 0
         return [...h, { x: lastX + 1, p: next }].slice(-120)
@@ -237,7 +249,7 @@ export function AgentChartCanvas({
 
     rafRef.current = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(rafRef.current)
-  }, [paused, onPriceUpdate, safeBet, minP, maxP])
+  }, [paused, onPriceUpdate, safeBet, minP, maxP, poolSim])
 
   useEffect(() => {
     if (!hitFlash) return
@@ -267,32 +279,32 @@ export function AgentChartCanvas({
   }, [targets, safeBet, onArenaResolution])
 
   return (
-    <div className="relative w-full h-full rounded-[28px] border-2 border-black/10 bg-white shadow-[0_40px_120px_rgba(0,0,0,0.08)] overflow-hidden">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col rounded-[28px] border-2 border-black/10 bg-white shadow-[0_40px_120px_rgba(0,0,0,0.08)] overflow-hidden">
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="w-full h-full block touch-none select-none"
+        className="block h-full min-h-0 w-full flex-1 touch-none select-none"
         preserveAspectRatio="xMidYMid slice"
       >
         <defs>
-          <filter id="lineGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <filter id={lineGlowId} x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="2.5" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-          <filter id="cellGlowLight" x="-60%" y="-60%" width="220%" height="220%">
+          <filter id={cellGlowLightId} x="-60%" y="-60%" width="220%" height="220%">
             <feGaussianBlur stdDeviation="4" result="b" />
             <feMerge>
               <feMergeNode in="b" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-          <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={areaFillId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={T.accentSoft} />
             <stop offset="100%" stopColor="rgba(16,185,129,0)" />
           </linearGradient>
-          <linearGradient id="trailFade" x1="0" y1="0" x2="1" y2="0">
+          <linearGradient id={trailFadeId} x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%" stopColor={T.accentBright} stopOpacity="0" />
             <stop offset="100%" stopColor={T.accentBright} stopOpacity="1" />
           </linearGradient>
@@ -363,7 +375,7 @@ export function AgentChartCanvas({
                 fill={fill}
                 stroke={stroke}
                 strokeWidth={highlight ? 1.75 : 1}
-                style={{ filter: highlight ? "url(#cellGlowLight)" : undefined }}
+                style={{ filter: highlight ? `url(#${cellGlowLightId})` : undefined }}
                 className={b.resolved ? "" : "cursor-pointer"}
                 onClick={e => {
                   if (b.resolved) return
@@ -415,7 +427,7 @@ export function AgentChartCanvas({
         {pathD && (
           <path
             d={`${pathD} L ${headX} ${H - PAD.b} L ${gl} ${H - PAD.b} Z`}
-            fill="url(#areaFill)"
+            fill={`url(#${areaFillId})`}
             opacity={0.8}
           />
         )}
@@ -424,11 +436,11 @@ export function AgentChartCanvas({
         <path
           d={pathD}
           fill="none"
-          stroke="url(#trailFade)"
+          stroke={`url(#${trailFadeId})`}
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          filter="url(#lineGlow)"
+          filter={`url(#${lineGlowId})`}
           opacity={0.95}
         />
 

@@ -1,14 +1,17 @@
 "use client"
 
 import {
-  BASE_PAIR_OPTIONS,
   CHAIN_OPTIONS,
   DEFAULT_RUNTIME_BOXES,
-  FEE_TIER_OPTIONS,
   formatPoolLabel,
   type AgentConfig,
   type AgentStatus,
 } from "@/lib/agents/agent-types"
+import {
+  ARENA_POOLS,
+  normalizeEnabledPoolIds,
+  type ArenaPoolId,
+} from "@/lib/agents/arena-pools"
 import type { PriceBox } from "@/components/dashboard/types"
 
 const BAR = {
@@ -69,6 +72,35 @@ export function AgentCapsulePanel({
 
   function patchBox(index: number, patch: Partial<PriceBox>) {
     onBoxesChange(boxes.map((b, i) => (i === index ? { ...b, ...patch } : b)))
+  }
+
+  function toggleTradeAll(on: boolean) {
+    const primary = ARENA_POOLS[0]!
+    onConfigChange({
+      tradeAllPools: on,
+      basePair: primary.basePair,
+      feeTier: primary.feeTier,
+      pool: formatPoolLabel(primary.basePair, primary.feeTier),
+    })
+  }
+
+  function togglePool(id: ArenaPoolId) {
+    if (config.tradeAllPools) return
+    const cur = new Set(config.enabledPoolIds)
+    if (cur.has(id)) {
+      if (cur.size <= 1) return
+      cur.delete(id)
+    } else {
+      cur.add(id)
+    }
+    const next = normalizeEnabledPoolIds([...cur])
+    const primary = ARENA_POOLS.find(p => next.includes(p.id)) ?? ARENA_POOLS[0]!
+    onConfigChange({
+      enabledPoolIds: next,
+      basePair: primary.basePair,
+      feeTier: primary.feeTier,
+      pool: formatPoolLabel(primary.basePair, primary.feeTier),
+    })
   }
 
   function seedBoxesFromRisk() {
@@ -194,30 +226,49 @@ export function AgentCapsulePanel({
             ))}
           </select>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Base pair</label>
-            <select className={fieldClass()} value={config.basePair} onChange={e => set("basePair", e.target.value)}>
-              {BASE_PAIR_OPTIONS.map(p => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+
+        <label className="flex items-start gap-2.5 rounded-xl border border-black/[0.06] bg-[#fafaf8]/90 px-3 py-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-0.5 rounded border-black/20"
+            checked={config.tradeAllPools}
+            onChange={e => toggleTradeAll(e.target.checked)}
+          />
+          <span className="min-w-0">
+            <span className="block text-[10px] font-medium text-black/65">Trade all arena pools</span>
+            <span className="block text-[9px] text-black/38 leading-snug mt-0.5">
+              Same shared pools as other agents — ETH/USDC, WBTC/ETH, USDC/USDT on this chain.
+            </span>
+          </span>
+        </label>
+
+        {!config.tradeAllPools && (
+          <div className="rounded-xl border border-black/[0.06] bg-white/80 px-3 py-2.5 space-y-2">
+            <p className="text-[9px] tracking-widest text-black/35 uppercase">Pool access</p>
+            <div className="space-y-1.5">
+              {ARENA_POOLS.map(pool => {
+                const checked = config.enabledPoolIds.includes(pool.id)
+                const onlyOne = config.enabledPoolIds.length === 1 && checked
+                return (
+                  <label key={pool.id} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-black/20"
+                      checked={checked}
+                      disabled={onlyOne}
+                      onChange={() => togglePool(pool.id)}
+                    />
+                    <span className="text-[11px] text-black/70">{pool.label}</span>
+                  </label>
+                )
+              })}
+            </div>
           </div>
-          <div>
-            <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Fee tier</label>
-            <select className={fieldClass()} value={config.feeTier} onChange={e => set("feeTier", e.target.value)}>
-              {FEE_TIER_OPTIONS.map(f => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+        )}
+
         <p className="text-[10px] text-black/40 leading-snug">
-          Allowed pool: <span className="font-medium text-black/55">{config.pool}</span>
+          Primary routing (display):{" "}
+          <span className="font-medium text-black/55">{config.pool}</span>
         </p>
       </div>
 

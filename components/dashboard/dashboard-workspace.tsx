@@ -1,78 +1,144 @@
-"use client"
+"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react"
-import Link from "next/link"
-import { AgentChartCanvas } from "@/components/dashboard/agent-chart-canvas"
-import { AgentCapsulePanel } from "@/components/dashboard/agent-capsule-panel"
-import { DashboardActivityFeed } from "@/components/dashboard/dashboard-activity-feed"
-import { DashboardArenaBoard } from "@/components/dashboard/dashboard-arena-board"
-import { DashboardMetrics } from "@/components/dashboard/dashboard-metrics"
-import { DashboardReplayControls } from "@/components/dashboard/dashboard-replay-controls"
-import { ExpandedModule } from "@/components/dashboard/expandable-module"
-import { MOCK_ARENA_AGENTS } from "@/components/dashboard/mock-arena"
-import { useAgent, useAgentsStore } from "@/lib/agents/agents-store"
-import type { ArenaResolutionPayload } from "@/components/dashboard/activity-types"
-import type { PriceBox } from "@/components/dashboard/types"
-import type { AgentConfig } from "@/lib/agents/agent-types"
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { AgentChartCanvas } from "@/components/dashboard/agent-chart-canvas";
+import { AgentCapsulePanel } from "@/components/dashboard/agent-capsule-panel";
+import { DashboardActivityFeed } from "@/components/dashboard/dashboard-activity-feed";
+import { DashboardArenaBoard } from "@/components/dashboard/dashboard-arena-board";
+import { DashboardMetrics } from "@/components/dashboard/dashboard-metrics";
+import { DashboardReplayControls } from "@/components/dashboard/dashboard-replay-controls";
+import { ExpandedModule } from "@/components/dashboard/expandable-module";
+import { MOCK_ARENA_AGENTS } from "@/components/dashboard/mock-arena";
+import { useAgent, useAgentsStore } from "@/lib/agents/agents-store";
+import type { ArenaResolutionPayload } from "@/components/dashboard/activity-types";
+import type { PriceBox } from "@/components/dashboard/types";
+import type { AgentConfig } from "@/lib/agents/agent-types";
+import {
+  ARENA_POOL_BY_ID,
+  getTradableArenaPools,
+  type ArenaPoolId,
+} from "@/lib/agents/arena-pools";
 
 type Props = {
-  agentId: string
+  agentId: string;
+};
+
+function formatArenaQuote(poolId: string, usd: number): string {
+  if (poolId === "usdc-usdt") {
+    return `$${usd.toLocaleString("en-US", {
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 6,
+    })}`;
+  }
+  if (poolId === "wbtc-eth") {
+    return `$${usd.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  }
+  return `$${usd.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 export function DashboardWorkspace({ agentId }: Props) {
-  const agent = useAgent(agentId)
-  const { updateConfig, updateBoxes, setStatus, recordResolution, ready } = useAgentsStore()
-  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
-  const [livePrice, setLivePrice] = useState(2306.94)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const agent = useAgent(agentId);
+  const { updateConfig, updateBoxes, setStatus, recordResolution, ready } =
+    useAgentsStore();
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const [livePrice, setLivePrice] = useState(2306.94);
+  const [committedChartPoolId, setCommittedChartPoolId] =
+    useState<ArenaPoolId>("eth-usdc");
+  const [overlayChartPoolId, setOverlayChartPoolId] =
+    useState<ArenaPoolId | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  const [replayIndex, setReplayIndex] = useState<number | null>(null)
-  const [replayPlaying, setReplayPlaying] = useState(false)
+  const [replayIndex, setReplayIndex] = useState<number | null>(null);
+  const [replayPlaying, setReplayPlaying] = useState(false);
 
-  const [logExpanded, setLogExpanded] = useState(false)
-  const [arenaExpanded, setArenaExpanded] = useState(false)
+  const [logExpanded, setLogExpanded] = useState(false);
+  const [arenaExpanded, setArenaExpanded] = useState(false);
 
   const handleArenaResolution = useCallback(
     (p: ArenaResolutionPayload) => {
-      if (!agentId) return
-      recordResolution(agentId, p)
+      if (!agentId) return;
+      recordResolution(agentId, p);
     },
     [agentId, recordResolution],
-  )
+  );
 
   const handleConfigChange = useCallback(
     (patch: Partial<AgentConfig>) => {
-      if (!agentId) return
-      updateConfig(agentId, patch)
+      if (!agentId) return;
+      updateConfig(agentId, patch);
     },
     [agentId, updateConfig],
-  )
+  );
 
   const handleBoxesChange = useCallback(
     (next: PriceBox[]) => {
-      if (!agentId) return
-      updateBoxes(agentId, next)
+      if (!agentId) return;
+      updateBoxes(agentId, next);
     },
     [agentId, updateBoxes],
-  )
+  );
 
-  const activity = agent?.activity ?? []
-  const totals = agent?.totals ?? { pnlEth: 0, gasGwei: 0, fills: 0, skips: 0 }
-  const agentStatus = agent?.status ?? "paused"
-  const config = agent?.config
-  const betAmount = agent?.config.betAmount ?? "0.10"
+  const activity = agent?.activity ?? [];
+  const totals = agent?.totals ?? { pnlEth: 0, gasGwei: 0, fills: 0, skips: 0 };
+  const agentStatus = agent?.status ?? "paused";
+  const config = agent?.config;
+  const betAmount = agent?.config.betAmount ?? "0.10";
+
+  const tradablePools = useMemo(
+    () =>
+      config
+        ? getTradableArenaPools(config.tradeAllPools, config.enabledPoolIds)
+        : [],
+    [config],
+  );
+
+  useEffect(() => {
+    const ids = tradablePools.map((p) => p.id);
+    if (ids.length === 0) return;
+    setCommittedChartPoolId((prev) =>
+      ids.includes(prev) ? prev : ids[0]!,
+    );
+    setOverlayChartPoolId(null);
+  }, [agentId, tradablePools]);
+
+  const handleChartPoolSelect = useCallback(
+    (next: ArenaPoolId) => {
+      const ids = tradablePools.map((p) => p.id);
+      if (!ids.includes(next)) return;
+      if (next === committedChartPoolId && !overlayChartPoolId) return;
+      if (next === committedChartPoolId && overlayChartPoolId) {
+        setOverlayChartPoolId(null);
+        return;
+      }
+      setOverlayChartPoolId(next);
+    },
+    [tradablePools, committedChartPoolId, overlayChartPoolId],
+  );
+
+  const completeChartSlide = useCallback(() => {
+    setOverlayChartPoolId((cur) => {
+      if (cur) setCommittedChartPoolId(cur);
+      return null;
+    });
+  }, []);
 
   const winRate = useMemo(() => {
-    const d = totals.fills + totals.skips
-    return d > 0 ? totals.fills / d : 0
-  }, [totals.fills, totals.skips])
+    const d = totals.fills + totals.skips;
+    return d > 0 ? totals.fills / d : 0;
+  }, [totals.fills, totals.skips]);
 
-  const currentAgentName = config?.name ?? "arena-alpha"
+  const currentAgentName = config?.name ?? "arena-alpha";
 
   const arenaAgents = useMemo(() => {
-    const scoreBump = Math.floor(totals.fills * 3 + totals.skips * 0.5)
-    const alreadyInList = MOCK_ARENA_AGENTS.some(a => a.name === currentAgentName)
-    const base = MOCK_ARENA_AGENTS.map(a =>
+    const scoreBump = Math.floor(totals.fills * 3 + totals.skips * 0.5);
+    const alreadyInList = MOCK_ARENA_AGENTS.some(
+      (a) => a.name === currentAgentName,
+    );
+    const base = MOCK_ARENA_AGENTS.map((a) =>
       a.name === currentAgentName
         ? {
             ...a,
@@ -82,8 +148,8 @@ export function DashboardWorkspace({ agentId }: Props) {
             actions: a.actions + totals.fills + totals.skips,
           }
         : a,
-    )
-    if (alreadyInList) return base
+    );
+    if (alreadyInList) return base;
     // Insert the current (newly-created) agent alongside the demo roster.
     return [
       ...base,
@@ -96,37 +162,58 @@ export function DashboardWorkspace({ agentId }: Props) {
         actions: totals.fills + totals.skips,
         score: 450 + scoreBump,
       },
-    ]
-  }, [totals.pnlEth, totals.fills, totals.skips, winRate, currentAgentName, config?.pool, agentId])
+    ];
+  }, [
+    totals.pnlEth,
+    totals.fills,
+    totals.skips,
+    winRate,
+    currentAgentName,
+    config?.pool,
+    agentId,
+  ]);
 
   useEffect(() => {
-    if (!replayPlaying || activity.length === 0) return
+    if (!replayPlaying || activity.length === 0) return;
     const tick = window.setInterval(() => {
-      setReplayIndex(i => {
-        const cur = i ?? -1
+      setReplayIndex((i) => {
+        const cur = i ?? -1;
         if (cur >= activity.length - 1) {
-          setReplayPlaying(false)
-          return activity.length - 1
+          setReplayPlaying(false);
+          return activity.length - 1;
         }
-        return cur + 1
-      })
-    }, 850)
-    return () => window.clearInterval(tick)
-  }, [replayPlaying, activity.length])
+        return cur + 1;
+      });
+    }, 850);
+    return () => window.clearInterval(tick);
+  }, [replayPlaying, activity.length]);
 
   const highlightId =
-    replayIndex !== null && replayIndex >= 0 && replayIndex < activity.length ? activity[replayIndex]?.id ?? null : null
+    replayIndex !== null && replayIndex >= 0 && replayIndex < activity.length
+      ? (activity[replayIndex]?.id ?? null)
+      : null;
+
+  const livePoolId = overlayChartPoolId ?? committedChartPoolId;
+  const livePairTag =
+    ARENA_POOL_BY_ID[livePoolId]?.livePairTag ?? "ETH / USDC";
 
   if (!ready) {
-    return <div className="py-12 text-center text-[12px] text-black/40">Loading agent…</div>
+    return (
+      <div className="py-12 text-center text-[12px] text-black/40">
+        Loading agent…
+      </div>
+    );
   }
 
   if (!agent || !config) {
     return (
       <div className="max-w-md mx-auto mt-12 rounded-2xl border border-black/10 bg-white/80 px-6 py-8 text-center space-y-3">
-        <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">Agent not found</p>
+        <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">
+          Agent not found
+        </p>
         <p className="text-[12px] text-black/50">
-          This agent may have been deleted from another window, or the link is invalid.
+          This agent may have been deleted from another window, or the link is
+          invalid.
         </p>
         <Link
           href="/dashboard"
@@ -135,7 +222,7 @@ export function DashboardWorkspace({ agentId }: Props) {
           ← All agents
         </Link>
       </div>
-    )
+    );
   }
 
   return (
@@ -143,7 +230,9 @@ export function DashboardWorkspace({ agentId }: Props) {
       <div className="flex flex-1 min-h-0 gap-4">
         <aside
           className={`relative shrink-0 transition-[width,opacity] duration-300 ease-out ${
-            sidebarOpen ? "w-[320px] xl:w-[340px] opacity-100" : "w-0 opacity-0 pointer-events-none"
+            sidebarOpen
+              ? "w-[320px] xl:w-[340px] opacity-100"
+              : "w-0 opacity-0 pointer-events-none"
           }`}
           aria-hidden={!sidebarOpen}
         >
@@ -154,7 +243,16 @@ export function DashboardWorkspace({ agentId }: Props) {
               aria-label="Hide sidebar"
               className="absolute -right-3 top-5 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-black/10 bg-white shadow-[0_4px_16px_rgba(0,0,0,0.08)] text-black/55 hover:text-black transition-colors"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
@@ -164,32 +262,84 @@ export function DashboardWorkspace({ agentId }: Props) {
               boxes={agent.boxes}
               onBoxesChange={handleBoxesChange}
               agentStatus={agentStatus}
-              onStatusChange={s => setStatus(agentId, s)}
+              onStatusChange={(s) => setStatus(agentId, s)}
             />
           </div>
         </aside>
 
         <section className="flex flex-col flex-1 min-w-0 min-h-0 gap-3">
-          <div className="relative flex-1 min-h-[min(52vh,520px)]">
-            <AgentChartCanvas
-              selectedTargetId={selectedTargetId}
-              onSelectTarget={setSelectedTargetId}
-              betAmount={betAmount}
-              paused={agentStatus !== "running"}
-              onPriceUpdate={setLivePrice}
-              onArenaResolution={handleArenaResolution}
-            />
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            {/* Fill flex row height like the original single canvas; grid keeps stacked pools same size */}
+            <div className="grid min-h-[min(52vh,520px)] w-full flex-1 grid-cols-1 grid-rows-1">
+              <div className="col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col">
+                <AgentChartCanvas
+                  key={`base-${committedChartPoolId}`}
+                  poolId={committedChartPoolId}
+                  selectedTargetId={selectedTargetId}
+                  onSelectTarget={setSelectedTargetId}
+                  betAmount={betAmount}
+                  paused={
+                    agentStatus !== "running" || !!overlayChartPoolId
+                  }
+                  onPriceUpdate={
+                    overlayChartPoolId ? undefined : setLivePrice
+                  }
+                  onArenaResolution={handleArenaResolution}
+                />
+              </div>
+              {overlayChartPoolId && (
+                <div
+                  className="col-start-1 row-start-1 z-10 flex min-h-0 min-w-0 flex-col overflow-hidden bg-white dashboard-chart-slide-layer"
+                  onAnimationEnd={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    completeChartSlide();
+                  }}
+                >
+                  <AgentChartCanvas
+                    key={`overlay-${overlayChartPoolId}`}
+                    poolId={overlayChartPoolId}
+                    selectedTargetId={selectedTargetId}
+                    onSelectTarget={setSelectedTargetId}
+                    betAmount={betAmount}
+                    paused={agentStatus !== "running"}
+                    onPriceUpdate={setLivePrice}
+                    onArenaResolution={handleArenaResolution}
+                  />
+                </div>
+              )}
+            </div>
 
-            <div className="pointer-events-none absolute top-4 right-4 md:top-5 md:right-5 z-20">
-              <div className="rounded-2xl border border-black/10 bg-white/92 backdrop-blur-md px-4 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.08)]">
-                <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">Live · ETH / USD</p>
+            <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-end gap-2 pt-4 pr-4 md:pt-5 md:pr-5">
+              <div className="pointer-events-auto rounded-2xl border border-black/10 bg-white/92 backdrop-blur-md px-4 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.08)] min-w-[200px]">
+                <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">
+                  Live · {livePairTag}
+                </p>
                 <p
                   className="mt-0.5 text-2xl leading-none tabular-nums text-[#111]"
                   style={{ fontFamily: '"IBM Plex Sans", sans-serif' }}
                 >
-                  ${livePrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatArenaQuote(livePoolId, livePrice)}
                 </p>
               </div>
+              <label className="pointer-events-auto flex items-center gap-2 rounded-xl border border-black/10 bg-white/95 backdrop-blur-md px-3 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.06)]">
+                <span className="font-pixel text-[8px] tracking-[0.15em] text-black/40 uppercase whitespace-nowrap">
+                  Arena pool
+                </span>
+                <select
+                  className="max-w-[220px] bg-transparent text-[11px] text-[#111] font-medium border-none focus:outline-none focus:ring-0 cursor-pointer truncate"
+                  value={overlayChartPoolId ?? committedChartPoolId}
+                  onChange={(e) =>
+                    handleChartPoolSelect(e.target.value as ArenaPoolId)
+                  }
+                  aria-label="Select arena pool chart"
+                >
+                  {tradablePools.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             {!sidebarOpen && (
@@ -197,9 +347,18 @@ export function DashboardWorkspace({ agentId }: Props) {
                 type="button"
                 onClick={() => setSidebarOpen(true)}
                 aria-label="Show sidebar"
-                className="absolute top-5 left-5 z-30 flex items-center gap-2 rounded-2xl border border-black/10 bg-white/92 backdrop-blur-md px-3.5 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.08)] text-[11px] tracking-[0.18em] uppercase text-black/70 hover:text-black hover:bg-white transition-colors"
+                className="pointer-events-auto absolute top-5 left-5 z-30 flex items-center gap-2 rounded-2xl border border-black/10 bg-white/92 backdrop-blur-md px-3.5 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.08)] text-[11px] tracking-[0.18em] uppercase text-black/70 hover:text-black hover:bg-white transition-colors"
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.25"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M9 6l6 6-6 6" />
                 </svg>
                 <span className="font-pixel">Panel</span>
@@ -227,28 +386,28 @@ export function DashboardWorkspace({ agentId }: Props) {
                 replayIndex={replayIndex}
                 replayPlaying={replayPlaying}
                 onPlay={() => {
-                  if (activity.length === 0) return
-                  setReplayPlaying(true)
-                  setReplayIndex(i => (i === null || i < 0 ? 0 : i))
+                  if (activity.length === 0) return;
+                  setReplayPlaying(true);
+                  setReplayIndex((i) => (i === null || i < 0 ? 0 : i));
                 }}
                 onPause={() => setReplayPlaying(false)}
                 onStepPrev={() => {
-                  setReplayPlaying(false)
-                  setReplayIndex(i => {
-                    const cur = i ?? 0
-                    return Math.max(0, cur - 1)
-                  })
+                  setReplayPlaying(false);
+                  setReplayIndex((i) => {
+                    const cur = i ?? 0;
+                    return Math.max(0, cur - 1);
+                  });
                 }}
                 onStepNext={() => {
-                  setReplayPlaying(false)
-                  setReplayIndex(i => {
-                    const cur = i ?? -1
-                    return Math.min(activity.length - 1, cur + 1)
-                  })
+                  setReplayPlaying(false);
+                  setReplayIndex((i) => {
+                    const cur = i ?? -1;
+                    return Math.min(activity.length - 1, cur + 1);
+                  });
                 }}
                 onCloseReplay={() => {
-                  setReplayPlaying(false)
-                  setReplayIndex(null)
+                  setReplayPlaying(false);
+                  setReplayIndex(null);
                 }}
               />
             </div>
@@ -269,7 +428,11 @@ export function DashboardWorkspace({ agentId }: Props) {
         title="Execution log"
         subtitle={`${activity.length} events · ${config.name}`}
       >
-        <DashboardActivityFeed events={activity} highlightId={highlightId} variant="lg" />
+        <DashboardActivityFeed
+          events={activity}
+          highlightId={highlightId}
+          variant="lg"
+        />
       </ExpandedModule>
 
       <ExpandedModule
@@ -285,5 +448,5 @@ export function DashboardWorkspace({ agentId }: Props) {
         />
       </ExpandedModule>
     </div>
-  )
+  );
 }

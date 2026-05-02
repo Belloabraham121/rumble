@@ -2,15 +2,14 @@
 
 import { useState, useEffect } from "react"
 import {
-  BASE_PAIR_OPTIONS,
   CHAIN_OPTIONS,
   DEFAULT_AGENT_CONFIG,
-  FEE_TIER_OPTIONS,
   formatPoolLabel,
   type AgentConfig,
   type ReflectionDepth,
   type RiskLevel,
 } from "@/lib/agents/agent-types"
+import { ARENA_POOLS, normalizeEnabledPoolIds, type ArenaPoolId } from "@/lib/agents/arena-pools"
 
 type Props = {
   open: boolean
@@ -72,6 +71,39 @@ export function CreateAgentModal({ open, onClose, onCreate, existingNames }: Pro
         )
       }
       return next
+    })
+  }
+
+  function toggleTradeAll(on: boolean) {
+    const primary = ARENA_POOLS[0]!
+    setCfg(prev => ({
+      ...prev,
+      tradeAllPools: on,
+      basePair: primary.basePair,
+      feeTier: primary.feeTier,
+      pool: formatPoolLabel(primary.basePair, primary.feeTier),
+    }))
+  }
+
+  function togglePool(id: ArenaPoolId) {
+    setCfg(prev => {
+      if (prev.tradeAllPools) return prev
+      const cur = new Set(prev.enabledPoolIds)
+      if (cur.has(id)) {
+        if (cur.size <= 1) return prev
+        cur.delete(id)
+      } else {
+        cur.add(id)
+      }
+      const next = normalizeEnabledPoolIds([...cur])
+      const primary = ARENA_POOLS.find(p => next.includes(p.id)) ?? ARENA_POOLS[0]!
+      return {
+        ...prev,
+        enabledPoolIds: next,
+        basePair: primary.basePair,
+        feeTier: primary.feeTier,
+        pool: formatPoolLabel(primary.basePair, primary.feeTier),
+      }
     })
   }
 
@@ -203,30 +235,40 @@ export function CreateAgentModal({ open, onClose, onCreate, existingNames }: Pro
                 ))}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Base pair</label>
-                <select className={fieldClass()} value={cfg.basePair} onChange={e => set("basePair", e.target.value)}>
-                  {BASE_PAIR_OPTIONS.map(p => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
+            <label className="flex items-start gap-2.5 rounded-xl border border-black/10 bg-[#fafaf8]/90 px-3 py-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5 rounded border-black/20"
+                checked={cfg.tradeAllPools}
+                onChange={e => toggleTradeAll(e.target.checked)}
+              />
+              <span className="min-w-0 text-[10px] text-black/60 leading-snug">
+                <span className="font-medium text-black/70">Trade all arena pools</span> — ETH/USDC, WBTC/ETH, USDC/USDT
+              </span>
+            </label>
+            {!cfg.tradeAllPools && (
+              <div className="rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 space-y-1.5">
+                <p className="text-[9px] tracking-widest text-black/35 uppercase">Pool access</p>
+                {ARENA_POOLS.map(pool => {
+                  const checked = cfg.enabledPoolIds.includes(pool.id)
+                  const onlyOne = cfg.enabledPoolIds.length === 1 && checked
+                  return (
+                    <label key={pool.id} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="rounded border-black/20"
+                        checked={checked}
+                        disabled={onlyOne}
+                        onChange={() => togglePool(pool.id)}
+                      />
+                      <span className="text-[11px] text-black/70">{pool.label}</span>
+                    </label>
+                  )
+                })}
               </div>
-              <div>
-                <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Fee tier</label>
-                <select className={fieldClass()} value={cfg.feeTier} onChange={e => set("feeTier", e.target.value)}>
-                  {FEE_TIER_OPTIONS.map(t => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+            )}
             <div>
-              <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Pool (derived)</label>
+              <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Primary routing (derived)</label>
               <input className={`${fieldClass()} bg-black/[0.03] text-black/55`} readOnly value={cfg.pool} />
             </div>
           </div>
