@@ -9,7 +9,7 @@ import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
 import type { Agent, AgentConfig } from "@/lib/agents/agent-types"
 import { migrateAgentConfig, DEFAULT_AGENT_CONFIG, DEFAULT_RUNTIME_BOXES } from "@/lib/agents/agent-types"
 import { prepareAgentForUpsert } from "@/lib/agents/runtime/validate-config"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 function newAgentId(): string {
   return `agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -30,19 +30,19 @@ function isAgentLike(v: unknown): v is Agent {
   )
 }
 
-/** List persisted agents for the signed-in Rombo user. */
+/** List persisted agents for the signed-in Rumble user. */
 export async function GET() {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured.", agents: [] }, { status: 503 })
   }
 
   const identity = await getTradingAuditIdentity()
-  if (!identity?.romboUserIdHex) {
+  if (!identity?.rumbleUserIdHex) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const docs = await listAgentsForUser(identity.romboUserIdHex)
+  const docs = await listAgentsForUser(identity.rumbleUserIdHex)
   const agents = docs.map(agentDocToAgent)
   return NextResponse.json({ agents })
 }
@@ -51,13 +51,13 @@ export async function GET() {
  * Create or replace a single agent row (`agent` must include stable `id` for wallet linkage).
  */
 export async function POST(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured." }, { status: 503 })
   }
 
   const identity = await getTradingAuditIdentity()
-  if (!identity?.romboUserIdHex) {
+  if (!identity?.rumbleUserIdHex) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -76,10 +76,10 @@ export async function POST(req: Request) {
 
   if (raw.agent !== undefined && isAgentLike(raw.agent)) {
     try {
-      const prev = await findAgentForUser(identity.romboUserIdHex, raw.agent.id)
+      const prev = await findAgentForUser(identity.rumbleUserIdHex, raw.agent.id)
       const agent = prepareAgentForUpsert(raw.agent, prev?.config)
       await upsertAgentForUser({
-        romboUserIdHex: identity.romboUserIdHex,
+        rumbleUserIdHex: identity.rumbleUserIdHex,
         agent,
       })
       return NextResponse.json({ ok: true, agent })
@@ -117,7 +117,7 @@ export async function POST(req: Request) {
 
   try {
     const validated = prepareAgentForUpsert(agent, undefined)
-    await upsertAgentForUser({ romboUserIdHex: identity.romboUserIdHex, agent: validated })
+    await upsertAgentForUser({ rumbleUserIdHex: identity.rumbleUserIdHex, agent: validated })
     return NextResponse.json({ ok: true, agent: validated }, { status: 201 })
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Validation failed"

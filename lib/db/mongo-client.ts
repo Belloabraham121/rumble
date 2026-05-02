@@ -1,7 +1,7 @@
 import "server-only"
 
 import { MongoClient, type Db } from "mongodb"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 /** Single in-flight connect — avoids duplicate connects; cleared on failure so the next call can retry. */
 let connectPromise: Promise<MongoClient> | null = null
@@ -29,10 +29,10 @@ async function getConnectedClient(uri: string): Promise<MongoClient> {
 
 /** MongoDB connection — null when `MONGODB_URI` is unset. */
 export async function getMongoDb(): Promise<Db | null> {
-  const uri = getRomboServerEnv().mongodbUri
+  const uri = getRumbleServerEnv().mongodbUri
   if (!uri) return null
 
   const client = await getConnectedClient(uri)
-  const dbName = process.env.MONGODB_DB_NAME?.trim() || "rombo"
+  const dbName = process.env.MONGODB_DB_NAME?.trim() || "rumble"
   return client.db(dbName)
 }

@@ -1,73 +1,61 @@
 import { NextResponse } from "next/server"
-import { fetchAgentWalletBalances } from "@/lib/onchain/agent-wallet-balances"
 import { findAgentForUser } from "@/lib/db/agents.repo"
-import { findAgentWallet } from "@/lib/db/agent-wallets.repo"
-import { getUserByRomboUserIdHex } from "@/lib/db/users.repo"
+import { findUserSimWallet } from "@/lib/db/sim-state.repo"
+import { ensureUserSimWallet } from "@/lib/agents/runtime/sim-snapshot"
+import { getUserByRumbleUserIdHex } from "@/lib/db/users.repo"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
-import { chainIdFromSlug } from "@/lib/rombo/chain-config"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { chainIdFromSlug } from "@/lib/rumble/chain-config"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
+/**
+ * Funding wallet shown in the agent capsule. Sim mode: this returns the
+ * shared `user_sim_wallets` row — the same paper-money balances the runtime
+ * mutates on every action. The address still echoes the navbar (Privy
+ * embedded) wallet so the user sees a consistent identity end-to-end.
+ */
 export async function GET(_req: Request, ctx: { params: Promise<{ agentId: string }> }) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured." }, { status: 503 })
   }
 
   const identity = await getTradingAuditIdentity()
-  if (!identity?.romboUserIdHex) {
+  if (!identity?.rumbleUserIdHex) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
   const { agentId } = await ctx.params
-  const agent = await findAgentForUser(identity.romboUserIdHex, agentId)
+  const agent = await findAgentForUser(identity.rumbleUserIdHex, agentId)
   if (!agent) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 
   const chainId = chainIdFromSlug(agent.config.chain) ?? env.defaultChainId
+  const user = await getUserByRumbleUserIdHex(identity.rumbleUserIdHex)
+  const navbarAddress = user?.privyEmbeddedWalletAddress
 
   /**
-   * Funding wallet displayed in the agent capsule must match the wallet the
-   * runtime tick actually signs from — i.e. the user's Privy embedded wallet
-   * (same address shown in the dashboard navbar). Fall back to the legacy
-   * per-agent wallet only if the embedded bridge has not populated yet.
+   * Lazily snapshot the sim wallet on first wallet-API hit so the capsule
+   * shows numbers even before the agent has ticked once. Subsequent hits read
+   * the persisted row.
    */
-  const user = await getUserByRomboUserIdHex(identity.romboUserIdHex)
-  let address: string | null = user?.privyEmbeddedWalletAddress ?? null
-  if (!address) {
-    const wallet = await findAgentWallet(identity.romboUserIdHex, agentId)
-    address = wallet?.address ?? null
-  }
-
-  if (!address) {
-    return NextResponse.json({
-      address: null as string | null,
+  let sim = await findUserSimWallet(identity.rumbleUserIdHex)
+  if (!sim) {
+    sim = await ensureUserSimWallet({
+      rumbleUserIdHex: identity.rumbleUserIdHex,
+      navbarAddress,
       chainId,
-      balanceEth: null as string | null,
-      balanceUsdc: null as string | null,
     })
   }
 
-  try {
-    const balances = await fetchAgentWalletBalances({
-      chainId,
-      walletAddress: address,
-    })
-    return NextResponse.json({
-      address,
-      chainId,
-      balanceEth: balances.balanceEth,
-      balanceUsdc: balances.balanceUsdc,
-    })
-  } catch {
-    return NextResponse.json({
-      address,
-      chainId,
-      balanceEth: null as string | null,
-      balanceUsdc: null as string | null,
-      error: "balance_fetch_failed",
-    })
-  }
+  return NextResponse.json({
+    address: navbarAddress ?? sim?.snapshotAddress ?? null,
+    chainId,
+    balanceEth: sim?.ethBalance ?? null,
+    balanceUsdc: sim?.usdcBalance ?? null,
+    baselineEth: sim?.baselineEthBalance ?? null,
+    baselineUsdc: sim?.baselineUsdcBalance ?? null,
+  })
 }

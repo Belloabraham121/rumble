@@ -7,7 +7,7 @@ import { getMongoDb } from "@/lib/db/mongo-client"
 export type AgentWalletDoc = {
   _id: ObjectId
   /** Mongo user id (hex) */
-  romboUserId: string
+  rumbleUserId: string
   agentId: string
   chainId: number
   privyWalletId: string
@@ -18,12 +18,12 @@ export type AgentWalletDoc = {
 }
 
 export async function findAgentWallet(
-  romboUserId: string,
+  rumbleUserId: string,
   agentId: string,
 ): Promise<AgentWalletDoc | null> {
   const db = await getMongoDb()
   if (!db) return null
-  return db.collection<AgentWalletDoc>(COLLECTIONS.agentWallets).findOne({ romboUserId, agentId })
+  return db.collection<AgentWalletDoc>(COLLECTIONS.agentWallets).findOne({ rumbleUserId, agentId })
 }
 
 export async function upsertAgentWalletRecord(input: Omit<AgentWalletDoc, "_id" | "createdAt" | "updatedAt">): Promise<void> {
@@ -32,7 +32,7 @@ export async function upsertAgentWalletRecord(input: Omit<AgentWalletDoc, "_id" 
 
   const now = new Date()
   await db.collection(COLLECTIONS.agentWallets).updateOne(
-    { romboUserId: input.romboUserId, agentId: input.agentId },
+    { rumbleUserId: input.rumbleUserId, agentId: input.agentId },
     {
       $set: {
         ...input,

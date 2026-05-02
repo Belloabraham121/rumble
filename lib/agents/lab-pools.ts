@@ -1,4 +1,4 @@
-import type { RomboChainSlug } from "@/lib/rombo/chain-config"
+import type { RumbleChainSlug } from "@/lib/rumble/chain-config"
 
 /**
  * Runtime shape of a user's lab pool — produced from Mongo (`LabPoolDoc`) or an
@@ -14,7 +14,7 @@ export type LabPoolToken = {
 
 export type LabPoolDef = {
   labPoolId: string
-  chainSlug: RomboChainSlug
+  chainSlug: RumbleChainSlug
   chainId: number
   protocol: "V4"
   fee: number
@@ -27,7 +27,7 @@ export type LabPoolDef = {
 }
 
 /** Deterministic id used as the key in `LabPoolDoc` + `enabledLabPoolIds`. */
-export function buildLabPoolId(chainSlug: RomboChainSlug, v4PoolId: string): string {
+export function buildLabPoolId(chainSlug: RumbleChainSlug, v4PoolId: string): string {
   return `${chainSlug}:${v4PoolId.toLowerCase()}`
 }
 

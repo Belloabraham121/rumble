@@ -2,7 +2,7 @@ import "server-only"
 
 export {
   UNISWAP_ERROR_CODES,
-  RomboUniswapError,
+  RumbleUniswapError,
   classifyUniswapHttpFailure,
   classifyUniswapNetworkFailure,
   type UniswapErrorCode,

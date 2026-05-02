@@ -1,4 +1,4 @@
-# Uniswap Labs APIs — Rombo backend reference
+# Uniswap Labs APIs — Rumble backend reference
 
 Operational notes distilled from **official Uniswap Developer docs** ([Trading API troubleshooting](https://developers.uniswap.org/docs/trading/swapping-api/common-errors), [Liquidity provisioning — getting started](https://developers.uniswap.org/docs/liquidity/liquidity-provisioning-api/getting-started), [API reference](https://developers.uniswap.org/docs/api-reference)). **Re-verify** hosts, paths, and schemas before shipping — Uniswap updates these regularly.
 
@@ -11,7 +11,7 @@ Operational notes distilled from **official Uniswap Developer docs** ([Trading A
 | **Trading API** (swap, quote, approvals, orders) | `https://trade-api.gateway.uniswap.org/v1` | Header **`x-api-key: <your-key>`** on every request |
 | **Liquidity provisioning API** | Default host **`https://liquidity.api.uniswap.org`** (`/lp/*` — confirm in [API reference](https://developers.uniswap.org/docs/api-reference)); override via **`UNISWAP_LIQUIDITY_API_BASE`** | Same **`x-api-key`** pattern on Uniswap Developer Platform keys |
 
-Obtain keys from the [Uniswap Developer Dashboard](https://developers.uniswap.org/dashboard). Store as `UNISWAP_API_KEY` server-side only (`lib/rombo/server-env.ts`).
+Obtain keys from the [Uniswap Developer Dashboard](https://developers.uniswap.org/dashboard). Store as `UNISWAP_API_KEY` server-side only (`lib/rumble/server-env.ts`).
 
 ---
 
@@ -34,10 +34,10 @@ Per [Troubleshooting — Rate limits](https://developers.uniswap.org/docs/tradin
 |------|--------|
 | **Default budget** | Most keys: **6 requests per second (RPS)** |
 | **Exceeded** | Expect HTTP **429 Too Many Requests** |
-| **Recommended handling** | **Pause** all outbound requests from that API key, then **retry** after a cool-down (implement exponential backoff + jitter in Rombo’s Uniswap client wrapper) |
+| **Recommended handling** | **Pause** all outbound requests from that API key, then **retry** after a cool-down (implement exponential backoff + jitter in Rumble’s Uniswap client wrapper) |
 | **Higher throughput** | Contact [Uniswap Developer Support](https://support.uniswap.org/hc/en-us/requests/new) or use options in the [Developer Dashboard](https://developers.uniswap.org/dashboard) |
 
-**Rombo implementation**
+**Rumble implementation**
 
 | Piece | Location |
 |-------|----------|
@@ -47,13 +47,13 @@ Per [Troubleshooting — Rate limits](https://developers.uniswap.org/docs/tradin
 | Liquidity `/lp/*` client | `lib/integrations/uniswap/liquidity.ts` |
 | Session API passthrough + audit | `POST /api/liquidity/[action]` (`check-approval`, `create`, `increase`, `decrease`, `claim`, `migrate`, `claim-rewards`) |
 
-**Stable Rombo codes** (inspect `error.code` on `RomboUniswapError`): `UNISWAP_MISSING_API_KEY`, `UNISWAP_RATE_LIMITED`, `UNISWAP_NO_QUOTE`, `UNISWAP_VALIDATION`, `UNISWAP_UNAUTHORIZED`, `UNISWAP_SERVER_ERROR`, `UNISWAP_GATEWAY_TIMEOUT`, `UNISWAP_NETWORK`, `UNISWAP_UNKNOWN`.
+**Stable Rumble codes** (inspect `error.code` on `RumbleUniswapError`): `UNISWAP_MISSING_API_KEY`, `UNISWAP_RATE_LIMITED`, `UNISWAP_NO_QUOTE`, `UNISWAP_VALIDATION`, `UNISWAP_UNAUTHORIZED`, `UNISWAP_SERVER_ERROR`, `UNISWAP_GATEWAY_TIMEOUT`, `UNISWAP_NETWORK`, `UNISWAP_UNKNOWN`.
 
 **To-dos:**
 
 - [x] Route Trading **`/check_approval`**, **`/quote`**, **`/swap`**, **`/order`** through **`fetchUniswap`** — `lib/integrations/uniswap/trading.ts`.
 - [x] Route Liquidity **`/lp/*`** through **`fetchUniswap`** — `lib/integrations/uniswap/liquidity.ts`.
-- [ ] Catch **`RomboUniswapError`** by **`error.code`** (`UNISWAP_*`) for UI and retries; on **429**, backoff globally for that API key — **never** spin tight loops.
+- [ ] Catch **`RumbleUniswapError`** by **`error.code`** (`UNISWAP_*`) for UI and retries; on **429**, backoff globally for that API key — **never** spin tight loops.
 - [ ] Log **`requestId`** from JSON bodies when present (failed responses may include it — see `classifyUniswapHttpFailure`).
 
 ---
@@ -62,7 +62,7 @@ Per [Troubleshooting — Rate limits](https://developers.uniswap.org/docs/tradin
 
 Sources: [Common errors / Troubleshooting](https://developers.uniswap.org/docs/trading/swapping-api/common-errors); API reference pages list response families including **200, 400, 401, 404, 429, 500, 504** for endpoints such as `check_approval`.
 
-| HTTP | Meaning | Typical causes | What Rombo should do |
+| HTTP | Meaning | Typical causes | What Rumble should do |
 |------|---------|----------------|----------------------|
 | **200** | Success | — | Parse body; persist `requestId` if returned |
 | **400** | Request validation | Missing required fields (e.g. quote params like `autoSlippage`), malformed addresses (e.g. **39** chars instead of **40**), invalid enums | Fix payload; **do not retry** identical body without correction |
@@ -83,7 +83,7 @@ Per official docs, this is often **not** “no route exists” but a validation 
 3. **Token addresses don’t match the chain** — e.g. Mainnet USDC address pasted for Base (addresses are **per-chain**).
 4. **Invalid combined bridge + swap** — API supports **either** a bridge (cross-chain, same token) **or** a same-chain swap, **not** both in one combined request.
 
-**Rombo:** Map agent “arena pools” to **verified** `(chainId, token0, token1, fee)` before quoting; enforce **minimum notional** in UI/backend when UniswapX is in `protocols`.
+**Rumble:** Map agent “arena pools” to **verified** `(chainId, token0, token1, fee)` before quoting; enforce **minimum notional** in UI/backend when UniswapX is in `protocols`.
 
 ---
 
@@ -120,7 +120,7 @@ Always cross-check **response schemas** in the latest [API reference](https://de
 
 ---
 
-## 6. Rombo error-handling checklist (implement in code)
+## 6. Rumble error-handling checklist (implement in code)
 
 - [ ] Map HTTP status → stable **internal error codes** for Mongo logging (`UNISWAP_RATE_LIMIT`, `UNISWAP_NO_QUOTE`, `UNISWAP_VALIDATION`, …).
 - [ ] Never log full **`x-api-key`**.
@@ -139,4 +139,4 @@ Always cross-check **response schemas** in the latest [API reference](https://de
 
 ---
 
-*This file is maintained for Rombo backend planning; it is not an official Uniswap publication.*
+*This file is maintained for Rumble backend planning; it is not an official Uniswap publication.*

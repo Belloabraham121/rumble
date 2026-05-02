@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export type SubgraphPoolStats = {
   poolAddress: string
@@ -83,7 +83,7 @@ export async function postSubgraphAt<T>(
 }
 
 async function postSubgraph<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const { uniswapV3SubgraphUrl } = getRomboServerEnv()
+  const { uniswapV3SubgraphUrl } = getRumbleServerEnv()
   if (!uniswapV3SubgraphUrl) {
     throw new Error("UNISWAP_V3_SUBGRAPH_URL is not configured.")
   }
@@ -291,13 +291,13 @@ function mapPoolSpot(raw: SubgraphPoolSpotRaw, ethUsd?: string): SubgraphPoolSpo
   }
 }
 
-/** Subgraph `bundle` is often empty on testnets; `ROMBO_ETH_USD_REF` fills the gap for derivedETH×ETH. */
+/** Subgraph `bundle` is often empty on testnets; `RUMBLE_ETH_USD_REF` fills the gap for derivedETH×ETH. */
 function effectiveBundleEthUsd(bundleEth?: string): string | undefined {
   if (bundleEth) {
     const n = Number(bundleEth)
     if (Number.isFinite(n) && n > 0) return bundleEth
   }
-  const ref = getRomboServerEnv().romboEthUsdRef
+  const ref = getRumbleServerEnv().rumbleEthUsdRef
   if (ref != null && Number.isFinite(ref) && ref > 0) return String(ref)
   return undefined
 }

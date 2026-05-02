@@ -33,7 +33,7 @@ export function OverviewMetrics({
     {
       label: "Total PnL",
       value: formatSignedUsd(m.totalNetPnlUsd),
-      sub: useRemote ? "all agents · net USD · Mongo" : "all agents · local estimate",
+      sub: useRemote ? "all agents · net USD" : "all agents · local estimate",
       accent: m.totalNetPnlUsd >= 0 ? "text-emerald-700" : "text-red-700",
     },
     {

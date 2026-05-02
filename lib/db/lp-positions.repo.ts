@@ -6,7 +6,7 @@ import { getMongoDb } from "@/lib/db/mongo-client"
 
 export type LpPositionDoc = {
   _id: ObjectId
-  romboUserIdHex?: string
+  rumbleUserIdHex?: string
   agentId: string
   arenaPoolId?: string
   chainId: number

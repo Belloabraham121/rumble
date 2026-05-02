@@ -9,7 +9,7 @@ import {
 } from "@/lib/integrations/uniswap/lp-metadata"
 
 export async function maybePersistLpPositionFromLiquidityResponse(input: {
-  romboUserIdHex?: string
+  rumbleUserIdHex?: string
   agentId?: string
   arenaPoolId?: string
   kind: TradingAttemptKind
@@ -31,7 +31,7 @@ export async function maybePersistLpPositionFromLiquidityResponse(input: {
   const pool = extractExistingPoolAddresses(input.payload)
 
   await upsertLpPositionByAgentPool({
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
     agentId,
     arenaPoolId: input.arenaPoolId,
     chainId,

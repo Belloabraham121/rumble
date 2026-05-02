@@ -3,7 +3,7 @@ import "server-only"
 import type { ObjectId } from "mongodb"
 import { COLLECTIONS } from "@/lib/db/collections"
 import { getMongoDb } from "@/lib/db/mongo-client"
-import type { RomboChainSlug } from "@/lib/rombo/chain-config"
+import type { RumbleChainSlug } from "@/lib/rumble/chain-config"
 
 /**
  * A user-deployed Uniswap v4 "lab" pool that an agent can trade against.
@@ -22,8 +22,8 @@ export type LabPoolTokenDoc = {
 export type LabPoolDoc = {
   _id: ObjectId
   labPoolId: string
-  romboUserIdHex: string
-  chainSlug: RomboChainSlug
+  rumbleUserIdHex: string
+  chainSlug: RumbleChainSlug
   chainId: number
   protocol: "V4"
   fee: number
@@ -45,7 +45,7 @@ export async function upsertLabPool(input: UpsertLabPoolInput): Promise<void> {
 
   const now = new Date()
   await db.collection(COLLECTIONS.labPools).updateOne(
-    { labPoolId: input.labPoolId, romboUserIdHex: input.romboUserIdHex },
+    { labPoolId: input.labPoolId, rumbleUserIdHex: input.rumbleUserIdHex },
     {
       $set: { ...input, updatedAt: now },
       $setOnInsert: { createdAt: now },
@@ -54,26 +54,26 @@ export async function upsertLabPool(input: UpsertLabPoolInput): Promise<void> {
   )
 }
 
-export async function listLabPoolsForUser(romboUserIdHex: string): Promise<LabPoolDoc[]> {
+export async function listLabPoolsForUser(rumbleUserIdHex: string): Promise<LabPoolDoc[]> {
   const db = await getMongoDb()
   if (!db) return []
   const docs = await db
     .collection(COLLECTIONS.labPools)
-    .find({ romboUserIdHex })
+    .find({ rumbleUserIdHex })
     .sort({ createdAt: -1 })
     .toArray()
   return docs as unknown as LabPoolDoc[]
 }
 
 export async function getLabPoolById(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   labPoolId: string
 }): Promise<LabPoolDoc | null> {
   const db = await getMongoDb()
   if (!db) return null
   const doc = await db.collection(COLLECTIONS.labPools).findOne({
     labPoolId: input.labPoolId,
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
   })
   return (doc as unknown as LabPoolDoc) ?? null
 }

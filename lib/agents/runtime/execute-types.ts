@@ -1,10 +1,15 @@
 import type { AgentConfig } from "@/lib/agents/agent-types"
 
 export type ExecuteAgentContext = {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   email?: string
   agentId: string
-  privyWalletId: string
+  /**
+   * Optional in sim mode (no Privy signing). Real-execution paths
+   * (`execute-decision.ts`, `execute-agent-lp.ts`) still require it; the live
+   * runtime is gated off by default in favour of `simulateAgentDecision`.
+   */
+  privyWalletId?: string
   walletAddress: string
   chainId: number
   config: AgentConfig

@@ -1,5 +1,5 @@
 /**
- * Rombo marketing palette: warm paper, ink, soft borders, emerald accent
+ * Rumble marketing palette: warm paper, ink, soft borders, emerald accent
  * (same family as `app/page.tsx` + `SitePageShell`).
  */
 export const chartTheme = {

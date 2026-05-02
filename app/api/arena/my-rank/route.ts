@@ -4,8 +4,8 @@ import { getOrRebuildArenaLeaderboard, leaderboardRangeToMetricsRange } from "@/
 import type { LeaderboardApiRange } from "@/lib/arena/leaderboard"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
 import { findAgentForUser } from "@/lib/db/agents.repo"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
-import { slugFromChainId, type RomboChainSlug } from "@/lib/rombo/chain-config"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
+import { slugFromChainId, type RumbleChainSlug } from "@/lib/rumble/chain-config"
 
 export const dynamic = "force-dynamic"
 
@@ -20,13 +20,13 @@ function parseRange(raw: string | null): LeaderboardApiRange {
 }
 
 export async function GET(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured." }, { status: 503 })
   }
 
   const identity = await getTradingAuditIdentity()
-  if (!identity?.romboUserIdHex) {
+  if (!identity?.rumbleUserIdHex) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "agentId and arenaPoolId are required." }, { status: 400 })
   }
 
-  const agent = await findAgentForUser(identity.romboUserIdHex, agentId)
+  const agent = await findAgentForUser(identity.rumbleUserIdHex, agentId)
   if (!agent) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
@@ -67,7 +67,7 @@ export async function GET(req: Request) {
   const { entries } = await getOrRebuildArenaLeaderboard({
     arenaPoolId,
     chainId,
-    chainSlug: slug as RomboChainSlug,
+    chainSlug: slug as RumbleChainSlug,
     metricsRange,
     force: false,
   })

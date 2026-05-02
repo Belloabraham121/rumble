@@ -23,7 +23,7 @@ export type TradingAttemptKind =
 
 export type TradingAttemptDoc = {
   _id: ObjectId
-  romboUserIdHex?: string
+  rumbleUserIdHex?: string
   email?: string
   agentId?: string
   idempotencyKey?: string
@@ -121,7 +121,7 @@ export async function listTradingAttemptsRecentWithTx(input: {
 /** All attempts for an agent in a time window (oldest → newest). `since = null` means full history. */
 export async function listTradingAttemptsForAgentInRange(input: {
   agentId: string
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   since: Date | null
 }): Promise<TradingAttemptDoc[]> {
   const db = await getMongoDb()
@@ -129,7 +129,7 @@ export async function listTradingAttemptsForAgentInRange(input: {
 
   const filter: Record<string, unknown> = {
     agentId: input.agentId,
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
   }
   if (input.since) {
     filter.createdAt = { $gte: input.since }

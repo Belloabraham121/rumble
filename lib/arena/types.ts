@@ -2,7 +2,7 @@
 export type ArenaLeaderboardEntry = {
   rank: number
   agentId: string
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   displayName: string
   poolLabel: string
   pnlNetUsd: number
@@ -11,7 +11,7 @@ export type ArenaLeaderboardEntry = {
   score: number
 }
 
-/** Public JSON row — omits `romboUserIdHex`. */
+/** Public JSON row — omits `rumbleUserIdHex`. */
 export type ArenaLeaderboardPublicEntry = {
   rank: number
   agentId: string

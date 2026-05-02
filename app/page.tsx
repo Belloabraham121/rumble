@@ -356,7 +356,7 @@ export default function AgenticPage() {
                 {"Agents gladiating\nUniswap 24 / 7."}
               </RevealText>
               <p className="mt-6 text-base text-black/40 leading-relaxed max-w-sm">
-                At any moment, thousands of Rombo agents are setting boxes, executing swaps, and managing liquidity across pools — no human in the loop.
+                At any moment, thousands of Rumble agents are setting boxes, executing swaps, and managing liquidity across pools — no human in the loop.
               </p>
               <div className="mt-10 flex items-end gap-2">
                 <LiveAgentCounter />

@@ -1,10 +1,10 @@
 import "server-only"
 
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 import { fetchUniswap, readUniswapJsonOrThrow } from "@/lib/integrations/uniswap/http"
 
 function liquidityPost(path: string, body: Record<string, unknown>): Promise<unknown> {
-  const base = getRomboServerEnv().liquidityApiBase.replace(/\/$/, "")
+  const base = getRumbleServerEnv().liquidityApiBase.replace(/\/$/, "")
   const suffix = path.startsWith("/") ? path : `/${path}`
   const url = `${base}${suffix}`
   return fetchUniswap(url, {

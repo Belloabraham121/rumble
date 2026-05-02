@@ -1,12 +1,12 @@
 import "server-only"
 
 import type { AuthorizationContext } from "@privy-io/node"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 import { normalizeAuthorizationPrivateKeyToPkcs8Base64 } from "@/lib/integrations/privy/pkcs8"
 
 /** Builds Privy Wallet API authorization context from server env, or null if key missing. */
 export function walletAuthorizationContext(): AuthorizationContext | null {
-  const raw = getRomboServerEnv().privyWalletAuthorizationPrivateKey
+  const raw = getRumbleServerEnv().privyWalletAuthorizationPrivateKey
   if (!raw) return null
   try {
     const pk = normalizeAuthorizationPrivateKeyToPkcs8Base64(raw)

@@ -8,7 +8,7 @@ export type OnchainReceiptSource = "client" | "webhook" | "poll"
 
 export type OnchainReceiptDoc = {
   _id: ObjectId
-  romboUserIdHex?: string
+  rumbleUserIdHex?: string
   chainId: number
   txHash: string
   blockNumber?: number
@@ -61,7 +61,7 @@ export async function upsertOnchainReceipt(input: UpsertOnchainReceiptInput): Pr
 }
 
 export async function listOnchainReceiptsForUser(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   limit?: number
 }): Promise<OnchainReceiptDoc[]> {
   const db = await getMongoDb()
@@ -70,7 +70,7 @@ export async function listOnchainReceiptsForUser(input: {
   const lim = Math.min(Math.max(input.limit ?? 100, 1), 300)
   const cur = db
     .collection(COLLECTIONS.onchainReceipts)
-    .find({ romboUserIdHex: input.romboUserIdHex })
+    .find({ rumbleUserIdHex: input.rumbleUserIdHex })
     .sort({ updatedAt: -1 })
     .limit(lim)
 
@@ -125,8 +125,8 @@ export async function findOnchainReceiptsForPairs(
 
 export async function listOnchainReceiptsForAgent(input: {
   agentId: string
-  /** When set (dashboard session user), restrict to receipts recorded for that Rombo user. */
-  romboUserIdHex?: string
+  /** When set (dashboard session user), restrict to receipts recorded for that Rumble user. */
+  rumbleUserIdHex?: string
   limit?: number
 }): Promise<OnchainReceiptDoc[]> {
   const db = await getMongoDb()
@@ -134,8 +134,8 @@ export async function listOnchainReceiptsForAgent(input: {
 
   const lim = Math.min(Math.max(input.limit ?? 50, 1), 200)
   const filter: Record<string, unknown> = { agentId: input.agentId }
-  if (input.romboUserIdHex) {
-    filter.romboUserIdHex = input.romboUserIdHex
+  if (input.rumbleUserIdHex) {
+    filter.rumbleUserIdHex = input.rumbleUserIdHex
   }
 
   const cur = db

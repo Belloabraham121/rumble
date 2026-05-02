@@ -4,7 +4,7 @@ import { ObjectId } from "mongodb"
 import { COLLECTIONS } from "@/lib/db/collections"
 import { getMongoDb } from "@/lib/db/mongo-client"
 
-export type RomboUserDoc = {
+export type RumbleUserDoc = {
   _id: ObjectId
   email: string
   privyUserId?: string
@@ -19,13 +19,13 @@ function normalizeEmail(email: string): string {
 }
 
 /** Upsert user by email; returns the persisted document. */
-export async function upsertUserByEmail(email: string): Promise<RomboUserDoc | null> {
+export async function upsertUserByEmail(email: string): Promise<RumbleUserDoc | null> {
   const db = await getMongoDb()
   if (!db) return null
 
   const normalized = normalizeEmail(email)
   const now = new Date()
-  const col = db.collection<RomboUserDoc>(COLLECTIONS.users)
+  const col = db.collection<RumbleUserDoc>(COLLECTIONS.users)
 
   await col.updateOne(
     { email: normalized },
@@ -41,7 +41,7 @@ export async function upsertUserByEmail(email: string): Promise<RomboUserDoc | n
 
 export async function updateUserPrivyBridge(
   email: string,
-  patch: Pick<RomboUserDoc, "privyUserId" | "privyEmbeddedWalletId" | "privyEmbeddedWalletAddress">,
+  patch: Pick<RumbleUserDoc, "privyUserId" | "privyEmbeddedWalletId" | "privyEmbeddedWalletAddress">,
 ): Promise<void> {
   const db = await getMongoDb()
   if (!db) return
@@ -58,19 +58,19 @@ export async function updateUserPrivyBridge(
   )
 }
 
-export async function getUserByEmail(email: string): Promise<RomboUserDoc | null> {
+export async function getUserByEmail(email: string): Promise<RumbleUserDoc | null> {
   const db = await getMongoDb()
   if (!db) return null
-  return db.collection<RomboUserDoc>(COLLECTIONS.users).findOne({ email: normalizeEmail(email) })
+  return db.collection<RumbleUserDoc>(COLLECTIONS.users).findOne({ email: normalizeEmail(email) })
 }
 
 /** Lookup by Mongo `_id` hex string (24-char ObjectId). */
-export async function getUserByRomboUserIdHex(hex: string): Promise<RomboUserDoc | null> {
+export async function getUserByRumbleUserIdHex(hex: string): Promise<RumbleUserDoc | null> {
   const db = await getMongoDb()
   if (!db) return null
   try {
     const id = ObjectId.createFromHexString(hex.trim())
-    return db.collection<RomboUserDoc>(COLLECTIONS.users).findOne({ _id: id })
+    return db.collection<RumbleUserDoc>(COLLECTIONS.users).findOne({ _id: id })
   } catch {
     return null
   }

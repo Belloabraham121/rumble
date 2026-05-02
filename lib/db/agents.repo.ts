@@ -5,11 +5,11 @@ import { COLLECTIONS } from "@/lib/db/collections"
 import { getMongoDb } from "@/lib/db/mongo-client"
 import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import { migrateAgentConfig, type Agent } from "@/lib/agents/agent-types"
-import type { RomboChainSlug } from "@/lib/rombo/chain-config"
+import type { RumbleChainSlug } from "@/lib/rumble/chain-config"
 
 export type AgentDoc = {
   _id: ObjectId
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId: string
   status: Agent["status"]
   createdAt: number
@@ -33,13 +33,13 @@ export function agentDocToAgent(doc: AgentDoc): Agent {
   }
 }
 
-export async function listAgentsForUser(romboUserIdHex: string): Promise<AgentDoc[]> {
+export async function listAgentsForUser(rumbleUserIdHex: string): Promise<AgentDoc[]> {
   const db = await getMongoDb()
   if (!db) return []
 
   const cur = db
     .collection(COLLECTIONS.agents)
-    .find({ romboUserIdHex })
+    .find({ rumbleUserIdHex })
     .sort({ updatedAt: -1 })
 
   const rows = await cur.toArray()
@@ -55,19 +55,19 @@ export async function findAgentByAgentId(agentId: string): Promise<AgentDoc | nu
 }
 
 export async function findAgentForUser(
-  romboUserIdHex: string,
+  rumbleUserIdHex: string,
   agentId: string,
 ): Promise<AgentDoc | null> {
   const db = await getMongoDb()
   if (!db) return null
 
-  const doc = await db.collection(COLLECTIONS.agents).findOne({ romboUserIdHex, agentId })
+  const doc = await db.collection(COLLECTIONS.agents).findOne({ rumbleUserIdHex, agentId })
   return doc as AgentDoc | null
 }
 
 /** Full upsert — replaces config/boxes/totals/activity for this agent id. */
 export async function upsertAgentForUser(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agent: Agent
 }): Promise<void> {
   const db = await getMongoDb()
@@ -77,10 +77,10 @@ export async function upsertAgentForUser(input: {
   const a = input.agent
 
   await db.collection(COLLECTIONS.agents).updateOne(
-    { romboUserIdHex: input.romboUserIdHex, agentId: a.id },
+    { rumbleUserIdHex: input.rumbleUserIdHex, agentId: a.id },
     {
       $set: {
-        romboUserIdHex: input.romboUserIdHex,
+        rumbleUserIdHex: input.rumbleUserIdHex,
         agentId: a.id,
         status: a.status,
         createdAt: a.createdAt,
@@ -96,25 +96,25 @@ export async function upsertAgentForUser(input: {
 }
 
 export async function deleteAgentForUser(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId: string
 }): Promise<boolean> {
   const db = await getMongoDb()
   if (!db) return false
 
   const res = await db.collection(COLLECTIONS.agents).deleteOne({
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
     agentId: input.agentId,
   })
   return res.deletedCount > 0
 }
 
 export async function upsertManyAgentsForUser(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agents: Agent[]
 }): Promise<void> {
   for (const agent of input.agents) {
-    await upsertAgentForUser({ romboUserIdHex: input.romboUserIdHex, agent })
+    await upsertAgentForUser({ rumbleUserIdHex: input.rumbleUserIdHex, agent })
   }
 }
 
@@ -129,7 +129,7 @@ export async function listRunningAgents(): Promise<AgentDoc[]> {
 
 /** Agents whose config allows trading `arenaPoolId` on `chainSlug` (arena leaderboard). */
 export async function listAgentsForArenaLeaderboard(input: {
-  chainSlug: RomboChainSlug
+  chainSlug: RumbleChainSlug
   arenaPoolId: ArenaPoolId
 }): Promise<AgentDoc[]> {
   const db = await getMongoDb()

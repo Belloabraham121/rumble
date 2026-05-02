@@ -13,11 +13,18 @@ import type { TradingAttemptDoc } from "@/lib/db/trading.repo"
 import { listTradingAttemptsForAgentRecent } from "@/lib/db/trading.repo"
 import { agentDocToAgent, findAgentForUser } from "@/lib/db/agents.repo"
 
-function hexQuantityToBigInt(hex: string | undefined): bigint | undefined {
-  if (!hex || typeof hex !== "string") return undefined
-  const h = hex.startsWith("0x") ? hex : `0x${hex}`
+function quantityToBigInt(raw: string | undefined): bigint | undefined {
+  if (!raw || typeof raw !== "string") return undefined
+  const trimmed = raw.trim()
+  if (!trimmed) return undefined
   try {
-    return BigInt(h)
+    if (trimmed.startsWith("0x") || trimmed.startsWith("0X")) {
+      return BigInt(trimmed)
+    }
+    if (/^\d+$/.test(trimmed)) {
+      return BigInt(trimmed)
+    }
+    return BigInt(`0x${trimmed}`)
   } catch {
     return undefined
   }
@@ -25,9 +32,7 @@ function hexQuantityToBigInt(hex: string | undefined): bigint | undefined {
 
 /** Effective gas price in gwei (legacy UI field name `gasGwei`). */
 export function effectiveGasPriceGweiFromReceipt(r: OnchainReceiptDoc): number | undefined {
-  const ep = r.effectiveGasPrice
-  if (!ep) return undefined
-  const wei = hexQuantityToBigInt(ep)
+  const wei = quantityToBigInt(r.effectiveGasPrice)
   if (wei === undefined) return undefined
   return Number(wei) / 1e9
 }
@@ -81,18 +86,26 @@ function titleFromRun(run: AgentRunDoc): string {
 }
 
 function detailFromRun(run: AgentRunDoc): string {
-  const pool = poolLabel(run.arenaPoolId)
+  const pool = poolLabel(run.arenaPoolId ?? run.labPoolId)
   const prefix = pool ? `${pool} · ` : ""
+  /**
+   * The simulator stores the AI-authored narrative on `detail.narrative`
+   * (and also as `summary`). Prefer the narrative for the human-facing line
+   * because it carries the strategy rationale alongside the size + outcome.
+   */
+  const narrative =
+    run.detail && typeof run.detail.narrative === "string" ? (run.detail.narrative as string).trim() : ""
+
   switch (run.decision) {
     case "skip":
       return `${prefix}${humanSkipReason(run.summary)}`
     case "swap":
-      return `${prefix}${run.summary.replace(/_/g, " ")}`
+      return `${prefix}${narrative || run.summary.replace(/_/g, " ")}`
     case "error":
       return `${prefix}${run.detail && typeof run.detail.error === "string" ? run.detail.error : run.summary}`
     case "lp_increase":
     case "lp_decrease":
-      return `${prefix}Automated LP not enabled — signal only.`
+      return `${prefix}${narrative || run.summary.replace(/_/g, " ")}`
     default:
       return `${prefix}${run.summary}`
   }
@@ -114,6 +127,16 @@ function humanSkipReason(summary: string): string {
       return "Agent wallet not provisioned."
     case "no_privy_user":
       return "Owner session missing Privy link."
+    case "no_user":
+      return "Owner record not found."
+    case "no_sim_wallet":
+      return "Sim wallet not initialised yet."
+    case "sim_zero_eth_balance":
+      return "Sim ETH balance hit zero — no further size."
+    case "sim_zero_usdc_balance":
+      return "Sim USDC balance hit zero — no further size."
+    case "sim_no_lp_position":
+      return "No open sim LP position to trim."
     default:
       return summary.replace(/_/g, " ")
   }
@@ -147,6 +170,16 @@ export function agentRunToActivityEvent(
     gasGwei = effectiveGasPriceGweiFromReceipt(receipt)
   }
 
+  /**
+   * Simulator surfaces realised PnL on `detail.simPnlEth` (ETH-shaped units —
+   * the dashboard's `formatPnlUsdc` legacy converter scales it back to USDC).
+   * Pulling it onto the row keeps wins/losses visible inline in the execution log.
+   */
+  const simPnlEth =
+    run.detail && typeof run.detail.simPnlEth === "number" && Number.isFinite(run.detail.simPnlEth)
+      ? (run.detail.simPnlEth as number)
+      : undefined
+
   return {
     id: `run-${run._id.toHexString()}`,
     at,
@@ -154,7 +187,7 @@ export function agentRunToActivityEvent(
     title,
     detail,
     reason: reasonFromRun(run, swapAttempt),
-    pnlEth: undefined,
+    pnlEth: simPnlEth,
     gasGwei,
     txShort: validHash ? txShort(validHash) : undefined,
     txHash: validHash,
@@ -180,7 +213,7 @@ function pickSwapAttempt(
 }
 
 export async function loadAgentActivityEvents(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId: string
   limit?: number
   cursor?: string | null
@@ -188,7 +221,7 @@ export async function loadAgentActivityEvents(input: {
   const lim = Math.min(Math.max(input.limit ?? 60, 1), 120)
   const { runs, nextCursor } = await listAgentRunsAscendingPage({
     agentId: input.agentId,
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
     limit: lim,
     cursor: input.cursor ?? undefined,
   })
@@ -227,13 +260,13 @@ export type LedgerActivityRow = AgentActivityEvent & {
  * Merged execution rows for `/dashboard/transactions` (newest first).
  */
 export async function buildLedgerActivityRowsForUser(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId?: string
   limit?: number
 }): Promise<LedgerActivityRow[]> {
   const lim = Math.min(Math.max(input.limit ?? 150, 1), 250)
   const runs = await listAgentRunsForUserLedger({
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
     agentId: input.agentId,
     limit: lim,
   })
@@ -243,7 +276,7 @@ export async function buildLedgerActivityRowsForUser(input: {
   const agentIds = [...new Set(runs.map(r => r.agentId))]
   const nameById: Record<string, string> = {}
   for (const id of agentIds) {
-    const doc = await findAgentForUser(input.romboUserIdHex, id)
+    const doc = await findAgentForUser(input.rumbleUserIdHex, id)
     if (doc) nameById[id] = agentDocToAgent(doc).config.name
     else nameById[id] = id
   }

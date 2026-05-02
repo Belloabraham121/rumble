@@ -13,9 +13,9 @@ import {
   computeV4PoolId,
   v4TickSpacingForSwapFee,
 } from "@/lib/liquidity-lab/v4-pool"
-import { resolveAgentRuntimeRpcUrl } from "@/lib/rombo/json-rpc"
-import { slugFromChainId, type RomboChainSlug } from "@/lib/rombo/chain-config"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { resolveAgentRuntimeRpcUrl } from "@/lib/rumble/json-rpc"
+import { slugFromChainId, type RumbleChainSlug } from "@/lib/rumble/chain-config"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 type NewPoolPayload = {
   token0Address?: string
@@ -70,13 +70,13 @@ async function resolveTokenMeta(input: {
  * creates, non-V4 protocols, or payloads we can't reason about.
  */
 export async function maybePersistLabPoolFromNewPoolCreate(input: {
-  romboUserIdHex?: string
+  rumbleUserIdHex?: string
   action: string
   payload: Record<string, unknown>
   response: unknown
 }): Promise<void> {
   if (input.action !== "create") return
-  if (!input.romboUserIdHex) return
+  if (!input.rumbleUserIdHex) return
 
   const protocol = typeof input.payload.protocol === "string" ? input.payload.protocol : undefined
   if (protocol !== "V4") return
@@ -86,7 +86,7 @@ export async function maybePersistLabPoolFromNewPoolCreate(input: {
 
   const chainId = readNumber(input.payload, "chainId", "chain_id")
   if (chainId === undefined) return
-  const chainSlug = slugFromChainId(chainId) as RomboChainSlug | undefined
+  const chainSlug = slugFromChainId(chainId) as RumbleChainSlug | undefined
   if (!chainSlug) return
 
   const token0Address =
@@ -106,7 +106,7 @@ export async function maybePersistLabPoolFromNewPoolCreate(input: {
 
   let rpcUrl: string
   try {
-    rpcUrl = resolveAgentRuntimeRpcUrl(chainId, getRomboServerEnv().romboRpcUrl)
+    rpcUrl = resolveAgentRuntimeRpcUrl(chainId, getRumbleServerEnv().rumbleRpcUrl)
   } catch {
     return
   }
@@ -134,7 +134,7 @@ export async function maybePersistLabPoolFromNewPoolCreate(input: {
 
   await upsertLabPool({
     labPoolId,
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
     chainSlug,
     chainId,
     protocol: "V4",

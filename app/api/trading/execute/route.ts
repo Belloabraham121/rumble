@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server"
 import { getTradingAuditIdentity, logTradingAudit } from "@/lib/api/trading-audit"
-import { RomboUniswapError } from "@/lib/integrations/uniswap/errors"
+import { RumbleUniswapError } from "@/lib/integrations/uniswap/errors"
 import { submitSignedSwapOrOrder } from "@/lib/integrations/uniswap/execute"
 import { hashPayloadForAudit } from "@/lib/integrations/uniswap/quote-metadata"
 import { withUniswapRetry } from "@/lib/integrations/uniswap/retry"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 /**
  * Convenience route: pass **`quoteResponse`** from `/api/trading/quote` plus **`signature`**
  * (signed permit or UniswapX order). Routes to **`/swap`** or **`/order`** based on `routing`.
  */
 export async function POST(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasUniswap) {
     return NextResponse.json({ error: "UNISWAP_API_KEY is not configured." }, { status: 503 })
   }
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
       chainId: chainIdMeta,
     })
 
-    if (e instanceof RomboUniswapError) {
+    if (e instanceof RumbleUniswapError) {
       return NextResponse.json(
         { error: e.message, code: e.code, requestId: e.requestId },
         { status: 502 },

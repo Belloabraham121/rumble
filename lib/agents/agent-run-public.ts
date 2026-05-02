@@ -2,7 +2,7 @@ import type { AgentRunDecision, AgentRunDoc } from "@/lib/db/agent-runs.repo"
 
 export type ArenaOutcomeKind = "hit" | "skip" | "error"
 
-/** API-facing row — safe for dashboards + SSE (no romboUserIdHex). */
+/** API-facing row — safe for dashboards + SSE (no rumbleUserIdHex). */
 export type AgentRunPublic = {
   id: string
   createdAt: string

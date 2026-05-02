@@ -7,8 +7,8 @@ import {
   type LeaderboardApiRange,
 } from "@/lib/arena/leaderboard"
 import type { ArenaLeaderboardPublicEntry } from "@/lib/arena/types"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
-import { slugFromChainId, type RomboChainSlug } from "@/lib/rombo/chain-config"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
+import { slugFromChainId, type RumbleChainSlug } from "@/lib/rumble/chain-config"
 
 export const dynamic = "force-dynamic"
 
@@ -23,7 +23,7 @@ function parseRange(raw: string | null): LeaderboardApiRange {
 }
 
 export async function GET(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured." }, { status: 503 })
   }
@@ -66,7 +66,7 @@ export async function GET(req: Request) {
   const { entries } = await getOrRebuildArenaLeaderboard({
     arenaPoolId,
     chainId,
-    chainSlug: slug as RomboChainSlug,
+    chainSlug: slug as RumbleChainSlug,
     metricsRange,
     force,
   })
@@ -76,7 +76,7 @@ export async function GET(req: Request) {
     highlightAgentId,
     metricsRange,
     arenaPoolId,
-    chainSlug: slug as RomboChainSlug,
+    chainSlug: slug as RumbleChainSlug,
   })
 
   const sorted = [...withHighlight].sort((a, b) => b.score - a.score)

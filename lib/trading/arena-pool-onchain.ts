@@ -1,5 +1,5 @@
 /**
- * Rombo arena pool → chain + Uniswap v3-style fee tier + token pair addresses.
+ * Rumble arena pool → chain + Uniswap v3-style fee tier + token pair addresses.
  * Verify addresses on-chain before mainnet size; testnet mints differ by deployment.
  */
 
@@ -7,8 +7,8 @@ import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import { ARENA_POOL_BY_ID } from "@/lib/agents/arena-pools"
 import {
   CHAIN_ID_BY_SLUG,
-  type RomboChainSlug,
-} from "@/lib/rombo/chain-config"
+  type RumbleChainSlug,
+} from "@/lib/rumble/chain-config"
 
 /** Uniswap v3 fee tier integers (hundredths of a bip); matches `feeTier` labels in UI. */
 export function uniswapV3FeeTierFromLabel(feeLabel: string): number | undefined {
@@ -22,7 +22,7 @@ export function uniswapV3FeeTierFromLabel(feeLabel: string): number | undefined 
 
 export type ArenaPoolOnChain = {
   arenaPoolId: ArenaPoolId
-  chainSlug: RomboChainSlug
+  chainSlug: RumbleChainSlug
   chainId: number
   feeTier: number
   /** First token (lexicographically smaller address — matches Uniswap pool token0 convention when comparing addresses). */
@@ -98,7 +98,7 @@ function sortTokensForUniswapOrder(a: PairTokens["token0"], b: PairTokens["token
 
 function buildPool(
   arenaPoolId: ArenaPoolId,
-  chainSlug: RomboChainSlug,
+  chainSlug: RumbleChainSlug,
   pair: PairTokens,
 ): ArenaPoolOnChain | undefined {
   const meta = ARENA_POOL_BY_ID[arenaPoolId]
@@ -118,7 +118,7 @@ function buildPool(
   }
 }
 
-const MAP: Partial<Record<RomboChainSlug, Partial<Record<ArenaPoolId, ArenaPoolOnChain>>>> = {
+const MAP: Partial<Record<RumbleChainSlug, Partial<Record<ArenaPoolId, ArenaPoolOnChain>>>> = {
   "base-sepolia": {
     "eth-usdc": buildPool("eth-usdc", "base-sepolia", BASE_SEPOLIA_ETH_USDC)!,
     "wbtc-eth": buildPool("wbtc-eth", "base-sepolia", BASE_SEPOLIA_WBTC_ETH)!,
@@ -131,10 +131,10 @@ const MAP: Partial<Record<RomboChainSlug, Partial<Record<ArenaPoolId, ArenaPoolO
   },
 }
 
-/** Resolve canonical on-chain metadata for an arena pool on a Rombo chain slug. */
+/** Resolve canonical on-chain metadata for an arena pool on a Rumble chain slug. */
 export function getArenaPoolOnChain(
   arenaPoolId: ArenaPoolId,
   chainSlug: string,
 ): ArenaPoolOnChain | undefined {
-  return MAP[chainSlug as RomboChainSlug]?.[arenaPoolId]
+  return MAP[chainSlug as RumbleChainSlug]?.[arenaPoolId]
 }

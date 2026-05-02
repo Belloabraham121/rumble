@@ -4,7 +4,7 @@ import { requireWalletAuthorizationContext } from "@/lib/integrations/privy/auth
 import { getPrivyServerClient } from "@/lib/integrations/privy/server-client"
 
 /** EIP-712 bundle accepted by Privy `eth_signTypedData_v4`. */
-export type RomboEthereumTypedDataInput = {
+export type RumbleEthereumTypedDataInput = {
   domain: Record<string, unknown>
   primary_type: string
   types: Record<string, Array<{ name: string; type: string }>>
@@ -40,7 +40,7 @@ function caip2(chainId: number): `eip155:${number}` {
 /** EIP-712 via Wallet API (`eth_signTypedData_v4`). */
 export async function signEthereumTypedDataV4(input: {
   walletId: string
-  typedData: RomboEthereumTypedDataInput
+  typedData: RumbleEthereumTypedDataInput
   idempotencyKey?: string
 }): Promise<string> {
   const client = getPrivyServerClient()

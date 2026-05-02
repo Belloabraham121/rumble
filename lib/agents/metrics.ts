@@ -130,11 +130,11 @@ function weiToEthNumber(wei: bigint): number {
 const METRICS_ROLLUP_SERVE_MS = 5 * 60 * 1000
 
 async function resolveAgentMetricsSnapshot(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId: string
   range: MetricsRange
 }): Promise<AgentMetricsSnapshot> {
-  const rollup = await findAgentMetricsRollup(input.romboUserIdHex, input.agentId)
+  const rollup = await findAgentMetricsRollup(input.rumbleUserIdHex, input.agentId)
   const cached = rollup?.byRange[input.range]
   const fresh =
     rollup &&
@@ -144,7 +144,7 @@ async function resolveAgentMetricsSnapshot(input: {
   if (fresh && cached) return cached
 
   const computed = await computeAgentMetrics(input)
-  await upsertAgentMetricsRange(input.romboUserIdHex, input.agentId, input.range, computed)
+  await upsertAgentMetricsRange(input.rumbleUserIdHex, input.agentId, input.range, computed)
   return computed
 }
 
@@ -154,19 +154,19 @@ async function resolveAgentMetricsSnapshot(input: {
  */
 export async function computeAgentMetrics(input: {
   agentId: string
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   range: MetricsRange
 }): Promise<AgentMetricsSnapshot> {
   const since = rangeStartDate(input.range)
   const [attempts, evaluatorSkips, ethUsd] = await Promise.all([
     listTradingAttemptsForAgentInRange({
       agentId: input.agentId,
-      romboUserIdHex: input.romboUserIdHex,
+      rumbleUserIdHex: input.rumbleUserIdHex,
       since,
     }),
     countAgentRunSkipsInRange({
       agentId: input.agentId,
-      romboUserIdHex: input.romboUserIdHex,
+      rumbleUserIdHex: input.rumbleUserIdHex,
       since,
     }),
     getEthUsdSpot(),
@@ -248,25 +248,25 @@ export async function computeAgentMetrics(input: {
 
 /** Cache-aware read for HTTP — verifies ownership. */
 export async function resolveAgentMetricsForApi(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId: string
   range: MetricsRange
 }): Promise<AgentMetricsSnapshot | null> {
-  const agent = await findAgentForUser(input.romboUserIdHex, input.agentId)
+  const agent = await findAgentForUser(input.rumbleUserIdHex, input.agentId)
   if (!agent) return null
   return resolveAgentMetricsSnapshot(input)
 }
 
 /** Recompute all ranges and upsert `agent_metrics` — call after each finalized agent tick. */
 export async function refreshAgentMetricsRollupsForAgent(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId: string
 }): Promise<void> {
   const ranges: MetricsRange[] = ["24h", "7d", "30d", "all"]
   const snaps = await Promise.all(
     ranges.map(r =>
       computeAgentMetrics({
-        romboUserIdHex: input.romboUserIdHex,
+        rumbleUserIdHex: input.rumbleUserIdHex,
         agentId: input.agentId,
         range: r,
       }),
@@ -277,7 +277,7 @@ export async function refreshAgentMetricsRollupsForAgent(input: {
     byRange[ranges[i]] = snaps[i]
   }
   await upsertAgentMetricsRollupFull({
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
     agentId: input.agentId,
     byRange,
   })
@@ -285,10 +285,10 @@ export async function refreshAgentMetricsRollupsForAgent(input: {
 
 /** Portfolio aggregates backed by Mongo attempts/runs/receipts (not client `totals`). */
 export async function computeDashboardOverviewFromDb(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   range: MetricsRange
 }): Promise<DashboardOverviewMetrics> {
-  const docs = await listAgentsForUser(input.romboUserIdHex)
+  const docs = await listAgentsForUser(input.rumbleUserIdHex)
   const agentCount = docs.length
   const runningCount = docs.filter(d => d.status === "running").length
 
@@ -309,7 +309,7 @@ export async function computeDashboardOverviewFromDb(input: {
     docs.map(d =>
       resolveAgentMetricsSnapshot({
         agentId: d.agentId,
-        romboUserIdHex: input.romboUserIdHex,
+        rumbleUserIdHex: input.rumbleUserIdHex,
         range: input.range,
       }),
     ),
@@ -346,7 +346,7 @@ export async function computeDashboardOverviewFromDb(input: {
 
 /** Batch metrics for grid — ignores unknown agent ids. */
 export async function computeAgentsMetricsBatch(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentIds: string[]
   range: MetricsRange
 }): Promise<Record<string, AgentMetricsSnapshot>> {
@@ -356,7 +356,7 @@ export async function computeAgentsMetricsBatch(input: {
   await Promise.all(
     unique.map(async id => {
       const m = await resolveAgentMetricsForApi({
-        romboUserIdHex: input.romboUserIdHex,
+        rumbleUserIdHex: input.rumbleUserIdHex,
         agentId: id,
         range: input.range,
       })

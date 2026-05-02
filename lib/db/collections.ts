@@ -1,6 +1,6 @@
 export const COLLECTIONS = {
   users: "users",
-  /** Agent definitions + runtime state per Rombo user (dashboard source of truth when synced). */
+  /** Agent definitions + runtime state per Rumble user (dashboard source of truth when synced). */
   agents: "agents",
   agentWallets: "agent_wallets",
   /** Uniswap quote/swap/order audit rows + idempotency keys */
@@ -17,7 +17,7 @@ export const COLLECTIONS = {
   poolPrices: "pool_prices",
   /** OHLC candles for arena pools (subgraph-sourced; short retention). */
   poolCandles: "pool_candles",
-  /** On-chain receipts linked to agents / Rombo users (Execution log → real tx). */
+  /** On-chain receipts linked to agents / Rumble users (Execution log → real tx). */
   onchainReceipts: "onchain_receipts",
   /** Idempotent record of inbound indexer webhook deliveries (debug / replay). */
   indexerWebhookDeliveries: "indexer_webhook_deliveries",
@@ -27,4 +27,17 @@ export const COLLECTIONS = {
   agentMetrics: "agent_metrics",
   /** Phase 5 arena leaderboard rows per pool + chain + range (cron rebuild). */
   arenaLeaderboardCache: "arena_leaderboard_cache",
+  /**
+   * Single shared simulation wallet per Rumble user. Source-of-truth for the
+   * paper-money ETH/USDC balances surfaced in the navbar + agent capsule.
+   * Snapshotted once from the user's real Privy embedded wallet at the first
+   * running-agent tick; mutated by every simulated swap / LP action thereafter.
+   */
+  userSimWallets: "user_sim_wallets",
+  /**
+   * Per-agent simulated LP positions (mirrors real Uniswap LP add/remove on
+   * paper). Holds the ETH + USDC currently locked, plus the chart range so
+   * `lp_decrease` knows what to release.
+   */
+  agentSimLpPositions: "agent_sim_lp_positions",
 } as const

@@ -4,7 +4,7 @@ import { getPoolPrice } from "@/lib/data/pool-prices.repo"
 import { refreshPoolPrice } from "@/lib/data/live-pool-tick"
 import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import { ARENA_POOL_IDS } from "@/lib/agents/arena-pools"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const arenaPoolId = searchParams.get("arenaPoolId") ?? "eth-usdc"
   const chainIdRaw = searchParams.get("chainId")
-  const chainId = chainIdRaw ? Number(chainIdRaw) : getRomboServerEnv().defaultChainId
+  const chainId = chainIdRaw ? Number(chainIdRaw) : getRumbleServerEnv().defaultChainId
 
   if (!isArenaId(arenaPoolId) || !Number.isFinite(chainId)) {
     return NextResponse.json({ error: "Invalid arenaPoolId or chainId" }, { status: 400 })
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
   }
 
   const doc =
-    getRomboServerEnv().hasMongo && refreshed.snapshot.poolAddress
+    getRumbleServerEnv().hasMongo && refreshed.snapshot.poolAddress
       ? await getPoolPrice({ chainId, arenaPoolId })
       : null
 

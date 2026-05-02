@@ -7,7 +7,7 @@ import {
   resolveArenaPoolContext,
   type ArenaPoolLiveSnapshot,
 } from "@/lib/data/live-pool-tick"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export type ArenaPoolPriceRow = {
   arenaPoolId: ArenaPoolId
@@ -31,7 +31,7 @@ export const dynamic = "force-dynamic"
 
 /** List the three arena pools with latest cached spot + 24h fundamentals. */
 export async function GET() {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   const rows: ArenaPoolPriceRow[] = []
 
   for (const pool of ARENA_POOLS) {

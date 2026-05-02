@@ -7,7 +7,7 @@ import {
   type TradingAttemptKind,
 } from "@/lib/db/trading.repo"
 import { getUserByEmail } from "@/lib/db/users.repo"
-import { RomboUniswapError } from "@/lib/integrations/uniswap/errors"
+import { RumbleUniswapError } from "@/lib/integrations/uniswap/errors"
 import {
   extractQuoteDeadline,
   extractRouting,
@@ -18,7 +18,7 @@ import {
 
 export type TradingAuditIdentity = {
   email: string
-  romboUserIdHex?: string
+  rumbleUserIdHex?: string
 }
 
 export async function getTradingAuditIdentity(): Promise<TradingAuditIdentity | null> {
@@ -27,7 +27,7 @@ export async function getTradingAuditIdentity(): Promise<TradingAuditIdentity | 
   const user = await getUserByEmail(session.email)
   return {
     email: session.email,
-    romboUserIdHex: user?._id.toHexString(),
+    rumbleUserIdHex: user?._id.toHexString(),
   }
 }
 
@@ -69,7 +69,7 @@ async function persistTradingAudit(input: {
   const status = input.error ? ("error" as const) : ("ok" as const)
   let errorCode: string | undefined
   let excerpt: string | undefined
-  if (input.error instanceof RomboUniswapError) {
+  if (input.error instanceof RumbleUniswapError) {
     errorCode = input.error.code
     excerpt = safeExcerpt(input.error.message)
   } else if (input.error instanceof Error) {
@@ -85,7 +85,7 @@ async function persistTradingAudit(input: {
   const payloadHash = input.payload !== undefined ? hashPayloadForAudit(input.payload) : undefined
 
   await insertTradingAttempt({
-    romboUserIdHex: input.identity?.romboUserIdHex,
+    rumbleUserIdHex: input.identity?.rumbleUserIdHex,
     email: input.identity?.email,
     agentId: input.agentId,
     idempotencyKey: input.idempotencyKey,

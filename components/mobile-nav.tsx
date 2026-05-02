@@ -31,7 +31,7 @@ export function MobileNav() {
           style={NAV_STYLE}
         >
           <Link href="/" className="font-pixel text-xs tracking-[0.25em] text-black/70 hover:text-black transition-colors">
-            ROMBO
+            RUMBLE
           </Link>
 
           {/* Desktop links */}

@@ -3,7 +3,7 @@ import "server-only"
 import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import type { LabPoolDef } from "@/lib/agents/lab-pools"
 import type { AgentConfig } from "@/lib/agents/agent-types"
-import { chainIdFromSlug } from "@/lib/rombo/chain-config"
+import { chainIdFromSlug } from "@/lib/rumble/chain-config"
 import { resolveTradingTokenAddress } from "@/lib/integrations/uniswap/token-addresses"
 import { getArenaPoolOnChain } from "@/lib/trading/arena-pool-onchain"
 
@@ -117,7 +117,7 @@ export function buildAgentQuoteRequestBody(input: BuildAgentQuoteBodyInput): Rec
     body.slippageTolerance = slippageTolerance
   }
 
-  /* Rombo trades through Uniswap v4 pools only (Trading API `protocols`). */
+  /* Rumble trades through Uniswap v4 pools only (Trading API `protocols`). */
   if (input.protocols && input.protocols.length > 0) {
     body.protocols = input.protocols
   } else {

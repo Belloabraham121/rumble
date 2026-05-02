@@ -1,10 +1,10 @@
 import "server-only"
 
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 import {
   classifyUniswapHttpFailure,
   classifyUniswapNetworkFailure,
-  RomboUniswapError,
+  RumbleUniswapError,
   UNISWAP_ERROR_CODES,
 } from "./errors"
 import { createUniswapRateLimiter, DEFAULT_UNISWAP_MAX_RPS } from "./rate-limiter"
@@ -20,12 +20,12 @@ export type FetchUniswapOptions = RequestInit & {
  * Authenticated fetch toward Uniswap Labs APIs with per-process rate shaping and stable errors.
  * Used for **Trading** (`trade-api.gateway.uniswap.org`) and **Liquidity** (`liquidity.api.uniswap.org`) —
  * they share the same API key and process-local ~5 RPS limiter (budget ~6 RPS per key).
- * Requires `UNISWAP_API_KEY` (throws `RomboUniswapError` `UNISWAP_MISSING_API_KEY` before network if unset).
+ * Requires `UNISWAP_API_KEY` (throws `RumbleUniswapError` `UNISWAP_MISSING_API_KEY` before network if unset).
  */
 export async function fetchUniswap(input: RequestInfo | URL, init?: FetchUniswapOptions): Promise<Response> {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.uniswapApiKey) {
-    throw new RomboUniswapError(
+    throw new RumbleUniswapError(
       UNISWAP_ERROR_CODES.MISSING_API_KEY,
       "UNISWAP_API_KEY is not configured — set it in server env.",
     )
@@ -49,7 +49,7 @@ export async function fetchUniswap(input: RequestInfo | URL, init?: FetchUniswap
   }
 }
 
-/** Read response text and throw `RomboUniswapError` when HTTP status is not ok. */
+/** Read response text and throw `RumbleUniswapError` when HTTP status is not ok. */
 export async function readUniswapJsonOrThrow(res: Response): Promise<unknown> {
   const text = await res.text()
   if (!res.ok) {
@@ -59,7 +59,7 @@ export async function readUniswapJsonOrThrow(res: Response): Promise<unknown> {
   try {
     return JSON.parse(text) as unknown
   } catch {
-    throw new RomboUniswapError(
+    throw new RumbleUniswapError(
       UNISWAP_ERROR_CODES.UNKNOWN,
       "Uniswap API returned non-JSON success body.",
       { httpStatus: res.status },

@@ -1,6 +1,6 @@
 import "server-only"
 
-import { ethCall } from "@/lib/rombo/json-rpc"
+import { ethCall } from "@/lib/rumble/json-rpc"
 
 const ERC20_DECIMALS = "0x313ce567" as const
 const ERC20_SYMBOL = "0x95d89b41" as const

@@ -3,8 +3,8 @@ import "server-only"
 import { applyReceiptEvent } from "@/lib/indexer/apply-receipt-event"
 import { findOnchainReceipt } from "@/lib/db/onchain-receipts.repo"
 import { listTradingAttemptsRecentWithTx } from "@/lib/db/trading.repo"
-import { ethGetTransactionReceipt, resolveAgentRuntimeRpcUrl } from "@/lib/rombo/json-rpc"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { ethGetTransactionReceipt, resolveAgentRuntimeRpcUrl } from "@/lib/rumble/json-rpc"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 function normalizeHash(h: string): `0x${string}` | null {
   const x = h.trim().toLowerCase()
@@ -20,7 +20,7 @@ export async function pollPendingTradingReceipts(): Promise<{
   pending: number
   errors: string[]
 }> {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   const attempts = await listTradingAttemptsRecentWithTx({ limit: 100, maxAgeMs: 7 * 86400000 })
 
   let scanned = 0
@@ -42,7 +42,7 @@ export async function pollPendingTradingReceipts(): Promise<{
 
     let rpcUrl: string
     try {
-      rpcUrl = resolveAgentRuntimeRpcUrl(a.chainId, env.romboRpcUrl)
+      rpcUrl = resolveAgentRuntimeRpcUrl(a.chainId, env.rumbleRpcUrl)
     } catch (e) {
       errors.push(e instanceof Error ? e.message : String(e))
       continue
@@ -70,7 +70,7 @@ export async function pollPendingTradingReceipts(): Promise<{
         effectiveGasPrice: receipt.effectiveGasPrice,
         status: receipt.status,
         agentId: a.agentId,
-        romboUserIdHex: a.romboUserIdHex,
+        rumbleUserIdHex: a.rumbleUserIdHex,
         excerpt: "poll",
       },
       "poll",

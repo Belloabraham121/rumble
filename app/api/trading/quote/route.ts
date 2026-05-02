@@ -4,18 +4,18 @@ import { ARENA_POOL_IDS } from "@/lib/agents/arena-pools"
 import type { AgentConfig } from "@/lib/agents/agent-types"
 import { getTradingAuditIdentity, logTradingAudit } from "@/lib/api/trading-audit"
 import { stripTradingRequestMeta } from "@/lib/api/trading-meta"
-import { RomboUniswapError } from "@/lib/integrations/uniswap/errors"
+import { RumbleUniswapError } from "@/lib/integrations/uniswap/errors"
 import { buildAgentQuoteRequestBody } from "@/lib/integrations/uniswap/agent-quote"
 import { withUniswapRetry } from "@/lib/integrations/uniswap/retry"
 import { uniswapQuote } from "@/lib/integrations/uniswap/trading"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 function isArenaPoolId(s: string): s is ArenaPoolId {
   return (ARENA_POOL_IDS as readonly string[]).includes(s)
 }
 
 export async function POST(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasUniswap) {
     return NextResponse.json({ error: "UNISWAP_API_KEY is not configured." }, { status: 503 })
   }
@@ -131,7 +131,7 @@ export async function POST(req: Request) {
       chainId: chainIdMeta,
     })
 
-    if (e instanceof RomboUniswapError) {
+    if (e instanceof RumbleUniswapError) {
       return NextResponse.json(
         { error: e.message, code: e.code, requestId: e.requestId },
         { status: 502 },

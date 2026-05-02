@@ -6,7 +6,7 @@ import {
   resolveArenaPoolContext,
 } from "@/lib/data/live-pool-tick"
 import type { SubgraphCandleGranularity } from "@/lib/integrations/uniswap/subgraph"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
@@ -25,7 +25,7 @@ export async function GET(
   }
 
   const poolId = arenaPoolId as ArenaPoolId
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   const url = new URL(req.url)
   const granularity = parseGranularity(url.searchParams.get("granularity"))
   const limitRaw = url.searchParams.get("limit")

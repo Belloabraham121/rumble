@@ -1,37 +1,48 @@
 import { NextResponse } from "next/server"
 import { getSessionProfile } from "@/lib/auth/session-profile"
-import { chainDisplayName } from "@/lib/rombo/chain-config"
-import { fetchAgentWalletBalances } from "@/lib/onchain/agent-wallet-balances"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { chainDisplayName } from "@/lib/rumble/chain-config"
+import { findUserSimWallet } from "@/lib/db/sim-state.repo"
+import { ensureUserSimWallet } from "@/lib/agents/runtime/sim-snapshot"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
 /**
- * Native + USDC balances for the signed-in user's Privy embedded wallet on the
- * server's default chain (e.g. Base Sepolia when `ROMBO_TARGET_NETWORK=testnet`).
+ * Navbar balance pill — returns the user's *simulated* ETH + USDC. Sim mode is
+ * the only mode, and the shared sim wallet is mutated by every running agent
+ * tick, so this number ticks live as the agents play. Snapshot is taken
+ * lazily here too so the navbar shows numbers immediately on first dashboard
+ * load even before any agent runs.
  */
 export async function GET() {
   const profile = await getSessionProfile()
-  if (!profile?.embeddedWalletAddress?.trim()) {
-    return NextResponse.json({ error: "no_wallet" }, { status: 404 })
+  if (!profile?.rumbleUserIdHex) {
+    return NextResponse.json({ error: "no_user" }, { status: 404 })
   }
 
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   const chainId = env.defaultChainId
 
-  try {
-    const balances = await fetchAgentWalletBalances({
+  let sim = await findUserSimWallet(profile.rumbleUserIdHex)
+  if (!sim) {
+    sim = await ensureUserSimWallet({
+      rumbleUserIdHex: profile.rumbleUserIdHex,
+      navbarAddress: profile.embeddedWalletAddress,
       chainId,
-      walletAddress: profile.embeddedWalletAddress.trim(),
     })
-    return NextResponse.json({
-      address: profile.embeddedWalletAddress.trim(),
-      chainId,
-      chainName: chainDisplayName(chainId),
-      balanceEth: balances.balanceEth,
-      balanceUsdc: balances.balanceUsdc,
-    })
-  } catch {
-    return NextResponse.json({ error: "balance_fetch_failed", chainId, chainName: chainDisplayName(chainId) }, { status: 502 })
   }
+
+  if (!sim) {
+    return NextResponse.json({ error: "no_sim_wallet", chainId, chainName: chainDisplayName(chainId) }, { status: 502 })
+  }
+
+  return NextResponse.json({
+    address: profile.embeddedWalletAddress ?? sim.snapshotAddress ?? null,
+    chainId,
+    chainName: chainDisplayName(chainId),
+    balanceEth: sim.ethBalance,
+    balanceUsdc: sim.usdcBalance,
+    baselineEth: sim.baselineEthBalance,
+    baselineUsdc: sim.baselineUsdcBalance,
+  })
 }

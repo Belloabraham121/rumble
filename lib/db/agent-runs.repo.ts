@@ -13,7 +13,7 @@ export type AgentRunDecision =
 
 export type AgentRunDoc = {
   _id: ObjectId
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId: string
   arenaPoolId?: string
   /** Set when the run targeted a user-registered lab pool (mutually exclusive with `arenaPoolId`). */
@@ -37,7 +37,7 @@ async function ensureAgentRunIndexes(): Promise<void> {
   if (!db) return
   try {
     await db.collection(COLLECTIONS.agentRuns).createIndex({ agentId: 1, createdAt: -1 }, { name: "agent_created" })
-    await db.collection(COLLECTIONS.agentRuns).createIndex({ romboUserIdHex: 1, createdAt: -1 }, { name: "user_created" })
+    await db.collection(COLLECTIONS.agentRuns).createIndex({ rumbleUserIdHex: 1, createdAt: -1 }, { name: "user_created" })
     ensuredIndexes = true
   } catch {
     // ignore duplicate index names
@@ -57,7 +57,7 @@ export async function insertAgentRun(input: InsertAgentRunInput): Promise<void> 
 /** Runs with `createdAt` strictly after `since`, oldest → newest (for incremental polling). */
 export async function listAgentRunsAfter(input: {
   agentId: string
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   since: Date
   limit?: number
 }): Promise<AgentRunDoc[]> {
@@ -68,7 +68,7 @@ export async function listAgentRunsAfter(input: {
   const lim = Math.min(Math.max(input.limit ?? 60, 1), 120)
   const filter: Record<string, unknown> = {
     agentId: input.agentId,
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
     createdAt: { $gt: input.since },
   }
 
@@ -84,7 +84,7 @@ export async function listAgentRunsAfter(input: {
 
 export async function listAgentRuns(input: {
   agentId: string
-  romboUserIdHex?: string
+  rumbleUserIdHex?: string
   limit?: number
 }): Promise<AgentRunDoc[]> {
   const db = await getMongoDb()
@@ -93,8 +93,8 @@ export async function listAgentRuns(input: {
 
   const lim = Math.min(Math.max(input.limit ?? 40, 1), 200)
   const filter: Record<string, unknown> = { agentId: input.agentId }
-  if (input.romboUserIdHex) {
-    filter.romboUserIdHex = input.romboUserIdHex
+  if (input.rumbleUserIdHex) {
+    filter.rumbleUserIdHex = input.rumbleUserIdHex
   }
 
   const rows = await db
@@ -110,7 +110,7 @@ export async function listAgentRuns(input: {
 /** Evaluator skips (`decision: skip`) in range; `since = null` → full history. */
 export async function countAgentRunSkipsInRange(input: {
   agentId: string
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   since: Date | null
 }): Promise<number> {
   const db = await getMongoDb()
@@ -119,7 +119,7 @@ export async function countAgentRunSkipsInRange(input: {
 
   const filter: Record<string, unknown> = {
     agentId: input.agentId,
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
     decision: "skip",
   }
   if (input.since) {
@@ -155,7 +155,7 @@ function decodeAgentRunCursor(raw: string): AgentRunCursorPayload | null {
  */
 export async function listAgentRunsAscendingPage(input: {
   agentId: string
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   limit: number
   cursor?: string
 }): Promise<{ runs: AgentRunDoc[]; nextCursor: string | null }> {
@@ -166,7 +166,7 @@ export async function listAgentRunsAscendingPage(input: {
   const lim = Math.min(Math.max(input.limit, 1), 120)
   const base: Record<string, unknown> = {
     agentId: input.agentId,
-    romboUserIdHex: input.romboUserIdHex,
+    rumbleUserIdHex: input.rumbleUserIdHex,
   }
 
   const decoded = input.cursor ? decodeAgentRunCursor(input.cursor) : null
@@ -196,7 +196,7 @@ export async function listAgentRunsAscendingPage(input: {
 
 /** Ledger merge — newest first. */
 export async function listAgentRunsForUserLedger(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId?: string
   limit: number
 }): Promise<AgentRunDoc[]> {
@@ -205,7 +205,7 @@ export async function listAgentRunsForUserLedger(input: {
   await ensureAgentRunIndexes()
 
   const lim = Math.min(Math.max(input.limit, 1), 250)
-  const filter: Record<string, unknown> = { romboUserIdHex: input.romboUserIdHex }
+  const filter: Record<string, unknown> = { rumbleUserIdHex: input.rumbleUserIdHex }
   if (input.agentId) {
     filter.agentId = input.agentId
   }

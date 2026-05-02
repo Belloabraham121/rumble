@@ -7,7 +7,7 @@ import {
   resolveArenaPoolContext,
   type ArenaPoolLiveSnapshot,
 } from "@/lib/data/live-pool-tick"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
@@ -22,7 +22,7 @@ export async function GET(
   }
 
   const poolId = arenaPoolId as ArenaPoolId
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   const ctx = resolveArenaPoolContext(poolId)
   if (!ctx) {
     return NextResponse.json(

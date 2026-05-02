@@ -2,7 +2,7 @@ import { agentRunToPublic } from "@/lib/agents/agent-run-public"
 import { findAgentForUser } from "@/lib/db/agents.repo"
 import { listAgentRunsAfter } from "@/lib/db/agent-runs.repo"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
@@ -10,19 +10,19 @@ export const dynamic = "force-dynamic"
  * SSE stream of new agent runs (`event: run`). Polls Mongo every ~2s — suitable for chart arena flashes.
  */
 export async function GET(req: Request, ctx: { params: Promise<{ agentId: string }> }) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return new Response("MongoDB is not configured.", { status: 503 })
   }
 
   const identity = await getTradingAuditIdentity()
-  const romboUserIdHex = identity?.romboUserIdHex
-  if (!romboUserIdHex) {
+  const rumbleUserIdHex = identity?.rumbleUserIdHex
+  if (!rumbleUserIdHex) {
     return new Response("Unauthorized", { status: 401 })
   }
 
   const { agentId } = await ctx.params
-  const agent = await findAgentForUser(romboUserIdHex, agentId)
+  const agent = await findAgentForUser(rumbleUserIdHex, agentId)
   if (!agent) {
     return new Response("Not found", { status: 404 })
   }
@@ -53,7 +53,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ agentId: string
         try {
           const docs = await listAgentRunsAfter({
             agentId,
-            romboUserIdHex,
+            rumbleUserIdHex,
             since: cursor,
             limit: 80,
           })

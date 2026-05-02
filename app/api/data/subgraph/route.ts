@@ -4,7 +4,7 @@ import {
   parsePermittedSubgraphHttpUrl,
   redactSubgraphUrlForClient,
 } from "@/lib/integrations/uniswap/subgraph-allowlist"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic"
  * Returns `_meta` + optional Uniswap `bundles` ETH/USD probe for schema sanity.
  */
 export async function GET(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   const { searchParams } = new URL(req.url)
   const rawOverride = searchParams.get("url")?.trim()
 

@@ -2,10 +2,10 @@ import { NextResponse } from "next/server"
 import { getSession } from "@/lib/auth/session"
 import { getUserByEmail, upsertUserByEmail } from "@/lib/db/users.repo"
 import { ensureAgentPrivyWallet } from "@/lib/integrations/privy/agent-wallet"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export async function POST(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json(
       { error: "Agent wallets require MONGODB_URI for durable mapping." },
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
 
   try {
     const wallet = await ensureAgentPrivyWallet({
-      romboUserIdHex: user._id.toHexString(),
+      rumbleUserIdHex: user._id.toHexString(),
       privyUserId: user.privyUserId,
       agentId,
     })
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
       agentId,
     })
   } catch (e) {
-    console.error("[rombo] agent wallet:", e)
+    console.error("[rumble] agent wallet:", e)
     const message = e instanceof Error ? e.message : "Wallet creation failed"
     return NextResponse.json({ error: message }, { status: 500 })
   }

@@ -80,7 +80,7 @@ export function humanAmountToBaseUnits(amount: number, decimals: number): string
   return (BigInt(whole) * pow10bigint(d) + BigInt(frac || "0")).toString()
 }
 
-function defaultSwapDirection(arenaPoolId: ArenaPoolId): SwapArenaDirection {
+export function defaultSwapDirection(arenaPoolId: ArenaPoolId): SwapArenaDirection {
   switch (arenaPoolId) {
     case "eth-usdc":
       return "token0_to_token1"
@@ -98,7 +98,7 @@ function defaultSwapDirection(arenaPoolId: ArenaPoolId): SwapArenaDirection {
  * maps to `token0_to_token1` on one chain and `token1_to_token0` on another. Align
  * `SwapArenaDirection` with `symbolsForSwap` + on-chain pool metadata.
  */
-function swapDirectionForArena(arenaPoolId: ArenaPoolId, chainSlug: string): SwapArenaDirection {
+export function swapDirectionForArena(arenaPoolId: ArenaPoolId, chainSlug: string): SwapArenaDirection {
   const pool = getArenaPoolOnChain(arenaPoolId, chainSlug)
   const { inSym, outSym } = symbolsForSwap(arenaPoolId)
   if (!pool || !inSym || !outSym) {
@@ -131,7 +131,7 @@ function symbolsForSwap(arenaPoolId: ArenaPoolId): { inSym: string; outSym: stri
   }
 }
 
-function decimalsForArenaSwapInput(arenaPoolId: ArenaPoolId): number {
+export function decimalsForArenaSwapInput(arenaPoolId: ArenaPoolId): number {
   switch (arenaPoolId) {
     case "eth-usdc":
       return 18
@@ -305,4 +305,93 @@ export function evaluatePriceBoxes(input: {
   }
 
   return decisionForMatchedBox(hit, arenaPoolId, config)
+}
+
+/**
+ * Build a small "scout" swap decision when the agent has nothing else to do
+ * (no box matched, the LLM punted, the price feed was stale, etc). Sized at a
+ * fraction of the regular bet so the wallet sees lots of small movements
+ * rather than blowing through balance — but every tick still produces a row
+ * in the activity feed. Returns null only when the user has explicitly
+ * disabled this token pair (which we still respect).
+ */
+export function synthesizeFallbackArenaSwap(input: {
+  arenaPoolId: ArenaPoolId
+  config: AgentConfig
+  /** When boxes is non-empty we reuse the closest box id for log continuity. */
+  boxes: PriceBox[]
+  /** Defaults to ~12% of normal bet — small enough to not drain quickly. */
+  scoutFraction?: number
+}): Extract<RuntimeDecision, { type: "swap" }> | null {
+  const { arenaPoolId, config, boxes } = input
+  const scoutFraction = input.scoutFraction ?? 0.12
+
+  const approved = parseCsvSymbols(config.approvedTokens)
+  const { inSym, outSym } = symbolsForSwap(arenaPoolId)
+  if (inSym && (!approved.has(inSym) || !approved.has(outSym))) {
+    return null
+  }
+
+  const tradable = getTradableArenaPools(config.tradeAllPools, config.enabledPoolIds)
+  if (!tradable.some(p => p.id === arenaPoolId)) {
+    return null
+  }
+
+  const bet = Number.parseFloat(config.betAmount) || 0
+  const maxPos = parsePercent(config.maxPositionPercent, 25) / 100
+  const human = bet * Math.max(0.02, Math.min(scoutFraction, 0.5)) * maxPos
+  if (!Number.isFinite(human) || human <= 0) return null
+
+  const dec = decimalsForArenaSwapInput(arenaPoolId)
+  const amount = humanAmountToBaseUnits(human, dec)
+  if (amount === "0") return null
+
+  const direction = swapDirectionForArena(arenaPoolId, config.chain)
+  const fallbackBoxId = boxes[0]?.id ?? `synthetic-scout-${arenaPoolId}`
+
+  return {
+    type: "swap",
+    target: { kind: "arena", arenaPoolId },
+    boxId: fallbackBoxId,
+    direction,
+    amount,
+  }
+}
+
+/**
+ * Lab-pool counterpart of `synthesizeFallbackArenaSwap`. Lab pools bypass the
+ * arena `approvedTokens` whitelist (the user opted in by registering the pool),
+ * so we just need a sized swap in the direction that spends the side the agent
+ * is most likely to hold.
+ */
+export function synthesizeFallbackLabSwap(input: {
+  labPool: LabPoolDef
+  config: AgentConfig
+  boxes: PriceBox[]
+  direction: SwapArenaDirection
+  scoutFraction?: number
+}): Extract<RuntimeDecision, { type: "swap" }> | null {
+  const { labPool, config, boxes, direction } = input
+  const scoutFraction = input.scoutFraction ?? 0.12
+
+  if (!config.enabledLabPoolIds.includes(labPool.labPoolId)) return null
+
+  const bet = Number.parseFloat(config.betAmount) || 0
+  const maxPos = parsePercent(config.maxPositionPercent, 25) / 100
+  const human = bet * Math.max(0.02, Math.min(scoutFraction, 0.5)) * maxPos
+  if (!Number.isFinite(human) || human <= 0) return null
+
+  const tokenIn = direction === "token0_to_token1" ? labPool.token0 : labPool.token1
+  const amount = humanAmountToBaseUnits(human, tokenIn.decimals)
+  if (amount === "0") return null
+
+  const fallbackBoxId = boxes[0]?.id ?? `synthetic-scout-${labPool.labPoolId}`
+
+  return {
+    type: "swap",
+    target: { kind: "lab", labPoolId: labPool.labPoolId, labPool },
+    boxId: fallbackBoxId,
+    direction,
+    amount,
+  }
 }

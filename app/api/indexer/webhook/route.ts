@@ -2,18 +2,18 @@ import { NextResponse } from "next/server"
 import { COLLECTIONS } from "@/lib/db/collections"
 import { getMongoDb } from "@/lib/db/mongo-client"
 import { applyReceiptEvent } from "@/lib/indexer/apply-receipt-event"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
-const WEBHOOK_HEADER = "x-rombo-webhook-secret"
+const WEBHOOK_HEADER = "x-rumble-webhook-secret"
 
 /**
  * External indexer / pipeline pushes normalized receipt rows (polling substitute).
- * Secured with `ROMBO_INDEXER_WEBHOOK_SECRET` — send the same value in header **`x-rombo-webhook-secret`**.
+ * Secured with `RUMBLE_INDEXER_WEBHOOK_SECRET` — send the same value in header **`x-rumble-webhook-secret`**.
  */
 export async function POST(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasIndexerWebhook) {
-    return NextResponse.json({ error: "ROMBO_INDEXER_WEBHOOK_SECRET is not configured." }, { status: 503 })
+    return NextResponse.json({ error: "RUMBLE_INDEXER_WEBHOOK_SECRET is not configured." }, { status: 503 })
   }
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured." }, { status: 503 })
@@ -85,7 +85,7 @@ export async function POST(req: Request) {
           effectiveGasPrice: typeof e.effectiveGasPrice === "string" ? e.effectiveGasPrice : undefined,
           status: e.status === "reverted" ? "reverted" : e.status === "success" ? "success" : undefined,
           agentId: typeof e.agentId === "string" ? e.agentId : undefined,
-          romboUserIdHex: typeof e.romboUserIdHex === "string" ? e.romboUserIdHex : undefined,
+          rumbleUserIdHex: typeof e.rumbleUserIdHex === "string" ? e.rumbleUserIdHex : undefined,
           walletAddress: typeof e.walletAddress === "string" ? e.walletAddress : undefined,
           clientEventId: typeof e.clientEventId === "string" ? e.clientEventId : undefined,
           arenaPoolId: typeof e.arenaPoolId === "string" ? e.arenaPoolId : undefined,

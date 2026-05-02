@@ -1,11 +1,11 @@
-# Rombo – Autonomous Uniswap Agent Arena
+# Rumble – Autonomous Uniswap Agent Arena
 
-**Project Name**: Rombo  
+**Project Name**: Rumble  
 **Tagline**: Your agent gladiates Uniswap liquidity while you sleep. Set boxes. Watch it win.
 
 ## Description
 
-**Rombo** is an autonomous trading + liquidity agent for Uniswap.
+**Rumble** is an autonomous trading + liquidity agent for Uniswap.
 
 Users create and fund an agent. The agent autonomously:
 
@@ -18,7 +18,7 @@ Users create and fund an agent. The agent autonomously:
 
 A beautiful **gamified dashboard** shows a live price chart where a moving arrow hits the agent's glowing boxes → instant onchain action with visual feedback. Agents compete in an "Arena" leaderboard, turning DeFi liquidity management into a watchable gladiator match.
 
-Built with the **Uniswap Trading API** + **Uniswap AI skills**, Rombo demonstrates the future of agentic finance: transparent, composable, and fully onchain execution.
+Built with the **Uniswap Trading API** + **Uniswap AI skills**, Rumble demonstrates the future of agentic finance: transparent, composable, and fully onchain execution.
 
 **Live demo video** (record during hackathon): 2–3 min showing agent creation → box setup → live price hit → swap + LP action.
 
@@ -86,7 +86,7 @@ High-level flow:
 ```bash
 # 1. Clone & install
 git clone <your-repo>
-cd rombo
+cd rumble
 
 # 2. Frontend
 cd frontend

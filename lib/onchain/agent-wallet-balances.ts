@@ -1,7 +1,7 @@
 import "server-only"
 
-import { erc20BalanceOfRaw, ethGetBalanceWei, resolveAgentRuntimeRpcUrl } from "@/lib/rombo/json-rpc"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { erc20BalanceOfRaw, ethGetBalanceWei, resolveAgentRuntimeRpcUrl } from "@/lib/rumble/json-rpc"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 /** Canonical USDC on Base test/main — lowercase checks in `token-meta`. */
 const USDC_BY_CHAIN: Record<number, `0x${string}`> = {
@@ -34,8 +34,8 @@ export async function fetchAgentWalletBalances(input: {
   chainId: number
   walletAddress: string
 }): Promise<AgentWalletBalances> {
-  const env = getRomboServerEnv()
-  const rpc = resolveAgentRuntimeRpcUrl(input.chainId, env.romboRpcUrl)
+  const env = getRumbleServerEnv()
+  const rpc = resolveAgentRuntimeRpcUrl(input.chainId, env.rumbleRpcUrl)
   const addr = input.walletAddress as `0x${string}`
   const wei = await ethGetBalanceWei(rpc, addr)
   const eth = formatUnits(wei, 18)

@@ -72,7 +72,7 @@ export function resolveAgentRuntimeRpcUrl(chainId: number, override?: string): s
   if (trimmed) return trimmed
   const fallback = defaultPublicRpcUrl(chainId)
   if (!fallback) {
-    throw new Error(`No RPC URL for chain ${chainId} — set ROMBO_RPC_URL`)
+    throw new Error(`No RPC URL for chain ${chainId} — set RUMBLE_RPC_URL`)
   }
   return fallback
 }

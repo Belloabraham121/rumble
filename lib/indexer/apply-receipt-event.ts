@@ -13,7 +13,7 @@ export type ReceiptEventPayload = {
   effectiveGasPrice?: string
   status?: "success" | "reverted"
   agentId?: string
-  romboUserIdHex?: string
+  rumbleUserIdHex?: string
   walletAddress?: string
   clientEventId?: string
   arenaPoolId?: string
@@ -38,7 +38,7 @@ export async function applyReceiptEvent(
     effectiveGasPrice: payload.effectiveGasPrice,
     status: payload.status,
     agentId: payload.agentId,
-    romboUserIdHex: payload.romboUserIdHex,
+    rumbleUserIdHex: payload.rumbleUserIdHex,
     walletAddress: payload.walletAddress?.trim().toLowerCase(),
     clientEventId: payload.clientEventId,
     arenaPoolId: payload.arenaPoolId,

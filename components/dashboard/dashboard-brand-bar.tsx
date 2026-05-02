@@ -138,7 +138,7 @@ export function DashboardBrandBar({ userEmail, embeddedWalletAddress: initialWal
           href="/dashboard"
           className="font-pixel text-xs tracking-[0.25em] text-black/70 hover:text-black transition-colors px-3 py-2 rounded-xl border border-black/10 bg-white shadow-[0_6px_24px_rgba(0,0,0,0.05)]"
         >
-          ROMBO
+          RUMBLE
         </Link>
         <Link
           href="/dashboard/transactions"

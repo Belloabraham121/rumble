@@ -2,7 +2,7 @@ import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import { getPoolChartSim } from "@/lib/agents/arena-pools"
 
 /**
- * Maps Rombo dashboard **chart simulation** coordinates (`low` / `high` on the arena chart)
+ * Maps Rumble dashboard **chart simulation** coordinates (`low` / `high` on the arena chart)
  * to an approximate **USD** band using the same `usdFromSim` anchor as the live chart.
  *
  * Converting that band into Liquidity API `priceBounds.minPrice` / `maxPrice` requires

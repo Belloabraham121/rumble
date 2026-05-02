@@ -1,7 +1,7 @@
 import "server-only"
 
 import type { ArenaPoolId } from "@/lib/agents/arena-pools"
-import { ethCall, resolveAgentRuntimeRpcUrl } from "@/lib/rombo/json-rpc"
+import { ethCall, resolveAgentRuntimeRpcUrl } from "@/lib/rumble/json-rpc"
 
 /** AggregatorV3Interface.latestRoundData() — no args. */
 const SELECTOR_LATEST_ROUND_DATA = "0xfeaf968c" as const

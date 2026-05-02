@@ -1,4 +1,4 @@
-# Rombo — Dashboard ↔ Backend integration plan
+# Rumble — Dashboard ↔ Backend integration plan
 
 > **Goal.** Remove **every** simulated / dummy / stale value from the dashboard. Price feeds, execution log, PnL, gas, actions, win rate, arena leaderboard, and agent runtime must be driven by **real Uniswap API calls**, **real on‑chain receipts**, and **real subgraph / oracle data** — persisted in **MongoDB** and fetched via typed APIs.
 
@@ -72,7 +72,7 @@ Each phase produces **backend code + API + frontend wiring** and deletes / repla
 
 ### Phase 1 — Live pool data for the three arena pools
 
-Three supported pools: `eth-usdc`, `wbtc-eth`, `usdc-usdt` on the active `ROMBO_TARGET_NETWORK` (Base Sepolia / Base mainnet). Token + fee addresses already in `lib/trading/arena-pool-onchain.ts`.
+Three supported pools: `eth-usdc`, `wbtc-eth`, `usdc-usdt` on the active `RUMBLE_TARGET_NETWORK` (Base Sepolia / Base mainnet). Token + fee addresses already in `lib/trading/arena-pool-onchain.ts`.
 
 **Backend**
 
@@ -115,7 +115,7 @@ Three supported pools: `eth-usdc`, `wbtc-eth`, `usdc-usdt` on the active `ROMBO_
 - [ ] Chainlink oracle helper for Base + Base Sepolia (fallback rules) — _deferred to Phase 2; ETH/USD is already derived from the subgraph `bundle.ethPriceUSD`._
 - [x] `pool_prices` / `pool_candles` collections + TTL indices → `lib/data/pool-prices.repo.ts`, `lib/data/pool-candles.repo.ts`.
 - [x] `/api/data/pools/*` routes → `app/api/data/pools/route.ts`, `.../[arenaPoolId]/price`, `/candles`, `/stats`.
-- [x] `GET /api/cron/poll-pools` + `vercel.json` schedule → `app/api/cron/poll-pools/route.ts`, `vercel.json`. Cron auth gated by `ROMBO_CRON_SECRET`.
+- [x] `GET /api/cron/poll-pools` + `vercel.json` schedule → `app/api/cron/poll-pools/route.ts`, `vercel.json`. Cron auth gated by `RUMBLE_CRON_SECRET`.
 - [x] `usePoolLivePrice` hook → `lib/data/use-pool-live-price.ts` (+ `use-pool-candles.ts`, `use-pools-list.ts`).
 - [x] Wire chart canvas — `AgentChartCanvas` now accepts `liveUsdPrice` + `liveSeedUsdPrices`; `DashboardWorkspace` feeds live price, candles seed, pool stats strip and a `Live · {subgraph|stale|sim}` source chip. `getPoolChartSim` is retained as fallback when `UNISWAP_V3_SUBGRAPH_URL` is unset; will be deleted in Phase 8.
 
@@ -379,21 +379,21 @@ Once Phases 1–5 ship, delete:
 
 ## 4. Config / env additions
 
-Append to `lib/rombo/server-env.ts`:
+Append to `lib/rumble/server-env.ts`:
 
 ```
-ROMBO_RPC_URL_BASE_SEPOLIA
-ROMBO_RPC_URL_BASE_MAINNET
-ROMBO_RPC_URL_UNICHAIN_SEPOLIA?
-ROMBO_RPC_URL_UNICHAIN_MAINNET?
+RUMBLE_RPC_URL_BASE_SEPOLIA
+RUMBLE_RPC_URL_BASE_MAINNET
+RUMBLE_RPC_URL_UNICHAIN_SEPOLIA?
+RUMBLE_RPC_URL_UNICHAIN_MAINNET?
 CHAINLINK_FEEDS_BASE                 # JSON map {ETH_USD: 0x..., BTC_USD: 0x...}
-ROMBO_CRON_SECRET                    # guards /api/cron/*
-ROMBO_TICK_INTERVAL_SECONDS=12
-ROMBO_RECEIPT_POLL_INTERVAL_SECONDS=20
+RUMBLE_CRON_SECRET                    # guards /api/cron/*
+RUMBLE_TICK_INTERVAL_SECONDS=12
+RUMBLE_RECEIPT_POLL_INTERVAL_SECONDS=20
 
 OPENAI_API_KEY                         # optional — agent tick box selection (see llm-evaluate.ts)
-ROMBO_OPENAI_MODEL=gpt-4o-mini
-ROMBO_LLM_AGENT_ENABLED=               # set to false to disable LLM path
+RUMBLE_OPENAI_MODEL=gpt-4o-mini
+RUMBLE_LLM_AGENT_ENABLED=               # set to false to disable LLM path
 ```
 
 Vercel cron (sketch `vercel.json`):
@@ -477,7 +477,7 @@ GET /api/admin/health
 - [ ] Chainlink oracle helper + env config (deferred to Phase 2; subgraph bundle ETH/USD already in use).
 - [x] `pool_prices`, `pool_candles` collections + TTL indices.
 - [x] `/api/data/pools`, `/price`, `/candles`, `/stats` routes.
-- [x] `/api/cron/poll-pools` + `vercel.json` schedule + `ROMBO_CRON_SECRET` guard.
+- [x] `/api/cron/poll-pools` + `vercel.json` schedule + `RUMBLE_CRON_SECRET` guard.
 - [x] `usePoolLivePrice` + `usePoolCandles` + `usePoolsList`; wired into `AgentChartCanvas` + `DashboardWorkspace`.
 - [ ] Remove `getPoolChartSim` (kept as subgraph-unavailable fallback; delete in Phase 8).
 

@@ -29,7 +29,7 @@ export function SiteHeader({ right, showStartCta = false }: SiteHeaderProps) {
           href="/"
           className="font-pixel text-xs tracking-[0.25em] text-black/70 hover:text-black transition-colors"
         >
-          ROMBO
+          RUMBLE
         </Link>
 
         <div className="flex items-center gap-3">

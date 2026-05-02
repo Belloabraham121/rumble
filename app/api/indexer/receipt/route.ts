@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server"
 import { applyReceiptEvent } from "@/lib/indexer/apply-receipt-event"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 /**
  * Attach or refresh an on-chain receipt after the client broadcasts a transaction (Privy / wallet).
- * Maps Rombo execution rows to **real** tx hashes, block number, and gas for the Transactions UI.
+ * Maps Rumble execution rows to **real** tx hashes, block number, and gas for the Transactions UI.
  */
 export async function POST(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured." }, { status: 503 })
   }
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
         effectiveGasPrice,
         status,
         agentId,
-        romboUserIdHex: identity.romboUserIdHex,
+        rumbleUserIdHex: identity.rumbleUserIdHex,
         walletAddress,
         clientEventId,
         arenaPoolId,

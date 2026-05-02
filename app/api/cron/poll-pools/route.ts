@@ -5,7 +5,7 @@ import {
   refreshAllArenaPoolPrices,
   refreshPoolCandles,
 } from "@/lib/data/live-pool-tick"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
@@ -18,7 +18,7 @@ async function run(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasSubgraph) {
     return NextResponse.json(
       { error: "UNISWAP_V3_SUBGRAPH_URL is not configured.", configured: false },

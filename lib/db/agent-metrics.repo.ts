@@ -7,7 +7,7 @@ import { getMongoDb } from "@/lib/db/mongo-client"
 
 export type AgentMetricsRollupDoc = {
   _id: ObjectId
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId: string
   updatedAt: Date
   byRange: Partial<Record<MetricsRange, AgentMetricsSnapshot>>
@@ -21,7 +21,7 @@ async function ensureIndexes(): Promise<void> {
   if (!db) return
   try {
     await db.collection(COLLECTIONS.agentMetrics).createIndex(
-      { romboUserIdHex: 1, agentId: 1 },
+      { rumbleUserIdHex: 1, agentId: 1 },
       { unique: true, name: "user_agent_metrics" },
     )
     ensuredIndexes = true
@@ -31,7 +31,7 @@ async function ensureIndexes(): Promise<void> {
 }
 
 export async function findAgentMetricsRollup(
-  romboUserIdHex: string,
+  rumbleUserIdHex: string,
   agentId: string,
 ): Promise<AgentMetricsRollupDoc | null> {
   const db = await getMongoDb()
@@ -39,7 +39,7 @@ export async function findAgentMetricsRollup(
   await ensureIndexes()
 
   const doc = await db.collection(COLLECTIONS.agentMetrics).findOne({
-    romboUserIdHex,
+    rumbleUserIdHex,
     agentId,
   })
   return doc as AgentMetricsRollupDoc | null
@@ -47,7 +47,7 @@ export async function findAgentMetricsRollup(
 
 /** Merge one range into the rollup document (read-through cache warm-up). */
 export async function upsertAgentMetricsRange(
-  romboUserIdHex: string,
+  rumbleUserIdHex: string,
   agentId: string,
   range: MetricsRange,
   snapshot: AgentMetricsSnapshot,
@@ -58,10 +58,10 @@ export async function upsertAgentMetricsRange(
 
   const now = new Date()
   await db.collection(COLLECTIONS.agentMetrics).updateOne(
-    { romboUserIdHex, agentId },
+    { rumbleUserIdHex, agentId },
     {
       $set: {
-        romboUserIdHex,
+        rumbleUserIdHex,
         agentId,
         [`byRange.${range}`]: snapshot,
         updatedAt: now,
@@ -73,7 +73,7 @@ export async function upsertAgentMetricsRange(
 
 /** Replace full cache — called after each agent tick to keep reads O(1). */
 export async function upsertAgentMetricsRollupFull(input: {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   agentId: string
   byRange: Partial<Record<MetricsRange, AgentMetricsSnapshot>>
 }): Promise<void> {
@@ -83,10 +83,10 @@ export async function upsertAgentMetricsRollupFull(input: {
 
   const now = new Date()
   await db.collection(COLLECTIONS.agentMetrics).updateOne(
-    { romboUserIdHex: input.romboUserIdHex, agentId: input.agentId },
+    { rumbleUserIdHex: input.rumbleUserIdHex, agentId: input.agentId },
     {
       $set: {
-        romboUserIdHex: input.romboUserIdHex,
+        rumbleUserIdHex: input.rumbleUserIdHex,
         agentId: input.agentId,
         byRange: input.byRange,
         updatedAt: now,

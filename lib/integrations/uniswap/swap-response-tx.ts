@@ -1,7 +1,7 @@
 import "server-only"
 
 /** Matches Privy `UnsignedStandardEthereumTransaction` shape closely enough for JSON-RPC. */
-export type RomboUnsignedEthTx = {
+export type RumbleUnsignedEthTx = {
   to?: string
   data?: `0x${string}`
   from?: string
@@ -24,12 +24,12 @@ function asHexQuantity(n: string | number | undefined): string | number | undefi
 }
 
 /** Map a Liquidity API `TransactionRequest` or similar object to Privy broadcast shape. */
-export function mapTransactionRequestRecordToRombo(o: Record<string, unknown>): RomboUnsignedEthTx | null {
+export function mapTransactionRequestRecordToRumble(o: Record<string, unknown>): RumbleUnsignedEthTx | null {
   const to = typeof o.to === "string" ? o.to : undefined
   const data = typeof o.data === "string" ? o.data : undefined
   if (!to || !data?.startsWith("0x")) return null
 
-  const tx: RomboUnsignedEthTx = {
+  const tx: RumbleUnsignedEthTx = {
     to,
     data: data as `0x${string}`,
     from: typeof o.from === "string" ? o.from : undefined,
@@ -56,7 +56,7 @@ export function mapTransactionRequestRecordToRombo(o: Record<string, unknown>): 
 }
 
 /** Best-effort pull an unsigned tx for Privy `eth_sendTransaction` from a `/swap` JSON body. */
-export function tryExtractUnsignedTxFromSwapResponse(root: unknown): RomboUnsignedEthTx | null {
+export function tryExtractUnsignedTxFromSwapResponse(root: unknown): RumbleUnsignedEthTx | null {
   if (!root || typeof root !== "object") return null
 
   const candidates: unknown[] = [root]
@@ -75,7 +75,7 @@ export function tryExtractUnsignedTxFromSwapResponse(root: unknown): RomboUnsign
   for (const c of candidates) {
     if (!c || typeof c !== "object") continue
     const o = c as Record<string, unknown>
-    const tx = mapTransactionRequestRecordToRombo(o)
+    const tx = mapTransactionRequestRecordToRumble(o)
     if (tx) return tx
   }
   return null

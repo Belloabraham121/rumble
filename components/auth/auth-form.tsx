@@ -76,7 +76,7 @@ export function AuthForm() {
   const title = mode === "register" ? "Create your workspace" : "Sign in to your workspace"
   const subtitle =
     mode === "register"
-      ? "Register to create your Rombo account. We provision an embedded Ethereum wallet (Privy) for funding and trading."
+      ? "Register to create your Rumble account. We provision an embedded Ethereum wallet (Privy) for funding and trading."
       : "Sign in with the email you used to register."
 
   return (

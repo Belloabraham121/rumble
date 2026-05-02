@@ -5,7 +5,7 @@ import {
 } from "@/lib/db/onchain-receipts.repo"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
 import { buildLedgerActivityRowsForUser } from "@/lib/agents/activity-join"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export type DashboardReceiptDto = {
   chainId: number
@@ -27,7 +27,7 @@ export type DashboardReceiptDto = {
  * Query: `agentId` — omit or `all` for every agent scope.
  */
 export async function GET(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json(
       { error: "MongoDB is not configured.", receipts: [], activityEvents: [] },
@@ -36,7 +36,7 @@ export async function GET(req: Request) {
   }
 
   const identity = await getTradingAuditIdentity()
-  if (!identity?.romboUserIdHex) {
+  if (!identity?.rumbleUserIdHex) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -47,14 +47,14 @@ export async function GET(req: Request) {
     300,
   )
 
-  const uid = identity.romboUserIdHex
+  const uid = identity.rumbleUserIdHex
 
   let receiptsRaw =
     !agentIdParam || agentIdParam === "all"
-      ? await listOnchainReceiptsForUser({ romboUserIdHex: uid, limit: receiptLimit })
+      ? await listOnchainReceiptsForUser({ rumbleUserIdHex: uid, limit: receiptLimit })
       : await listOnchainReceiptsForAgent({
           agentId: agentIdParam,
-          romboUserIdHex: uid,
+          rumbleUserIdHex: uid,
           limit: receiptLimit,
         })
 
@@ -73,7 +73,7 @@ export async function GET(req: Request) {
   }))
 
   const activityEvents = await buildLedgerActivityRowsForUser({
-    romboUserIdHex: uid,
+    rumbleUserIdHex: uid,
     agentId:
       agentIdParam && agentIdParam !== "all" ? agentIdParam : undefined,
     limit: receiptLimit,

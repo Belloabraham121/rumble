@@ -9,8 +9,8 @@ import {
   type SubgraphCandleGranularity,
   type SubgraphPoolSpot,
 } from "@/lib/integrations/uniswap/subgraph"
-import { DEFAULT_ROMBO_CHAIN_SLUG, slugFromChainId } from "@/lib/rombo/chain-config"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { DEFAULT_RUMBLE_CHAIN_SLUG, slugFromChainId } from "@/lib/rumble/chain-config"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 import { fetchArenaSpotUsdChainlink } from "@/lib/onchain/chainlink-feeds"
 import { getArenaPoolOnChain } from "@/lib/trading/arena-pool-onchain"
 
@@ -28,9 +28,9 @@ export function resolveArenaPoolContext(
   arenaPoolId: ArenaPoolId,
   chainId?: number,
 ): ResolvedArenaPoolContext | null {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   const cid = chainId ?? env.defaultChainId
-  const slug = slugFromChainId(cid) ?? DEFAULT_ROMBO_CHAIN_SLUG
+  const slug = slugFromChainId(cid) ?? DEFAULT_RUMBLE_CHAIN_SLUG
   const meta = getArenaPoolOnChain(arenaPoolId, slug)
   if (!meta) return null
   return {
@@ -78,7 +78,7 @@ function positiveUsdString(raw?: string): boolean {
 
 /**
  * Subgraph `bundle` / `derivedETH` often yields empty USD on testnets. Fall back to pool
- * `token*Price` ratios (USDC per WETH for canonical ETH/USDC) and `ROMBO_ETH_USD_REF`.
+ * `token*Price` ratios (USDC per WETH for canonical ETH/USDC) and `RUMBLE_ETH_USD_REF`.
  */
 export function resolveDisplayUsdForArena(
   spot: SubgraphPoolSpot,
@@ -87,8 +87,8 @@ export function resolveDisplayUsdForArena(
   const primary = pickDisplayUsd(spot, arenaPoolId)
   if (positiveUsdString(primary)) return primary
 
-  const env = getRomboServerEnv()
-  const refEthUsd = env.romboEthUsdRef
+  const env = getRumbleServerEnv()
+  const refEthUsd = env.rumbleEthUsdRef
   const t0 = spot.token0.symbol ?? ""
   const t1 = spot.token1.symbol ?? ""
   const t0Stable = /usdc|usdt/i.test(t0)
@@ -171,7 +171,7 @@ export async function refreshPoolPrice(
   arenaPoolId: ArenaPoolId,
   chainId?: number,
 ): Promise<RefreshPoolPriceOutcome> {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   const ctx = resolveArenaPoolContext(arenaPoolId, chainId)
   if (!ctx) return { ok: false, arenaPoolId, reason: "arena pool not configured for this chain" }
 
@@ -188,7 +188,7 @@ export async function refreshPoolPrice(
     const cl = await fetchArenaSpotUsdChainlink({
       arenaPoolId,
       chainId: ctx.chainId,
-      rpcUrlOverride: env.romboRpcUrl,
+      rpcUrlOverride: env.rumbleRpcUrl,
     })
     if (cl?.displayUsd && positiveUsdString(cl.displayUsd)) {
       displayUsd = cl.displayUsd
@@ -220,7 +220,7 @@ export async function refreshPoolPrice(
       arenaPoolId,
       reason:
         !env.hasSubgraph && !chainlinkOk
-          ? "Set ROMBO_RPC_URL on Base/Base Sepolia for Chainlink, or UNISWAP_V3_SUBGRAPH_URL"
+          ? "Set RUMBLE_RPC_URL on Base/Base Sepolia for Chainlink, or UNISWAP_V3_SUBGRAPH_URL"
           : "no spot price from Chainlink or subgraph",
     }
   }
@@ -292,7 +292,7 @@ export async function refreshPoolCandles(input: {
   limit?: number
   chainId?: number
 }): Promise<RefreshPoolCandlesOutcome> {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasSubgraph) {
     return { ok: false, arenaPoolId: input.arenaPoolId, reason: "UNISWAP_V3_SUBGRAPH_URL not configured" }
   }
@@ -352,10 +352,10 @@ export async function refreshPoolCandles(input: {
   return { ok: true, arenaPoolId: input.arenaPoolId, granularity: input.granularity, rows: updated }
 }
 
-/** True when the cached price is within `ROMBO_POOL_PRICE_TTL_SECONDS`. */
+/** True when the cached price is within `RUMBLE_POOL_PRICE_TTL_SECONDS`. */
 export function isPoolPriceFresh(cached: { fetchedAt: Date } | null | undefined): boolean {
   if (!cached) return false
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   const ageSec = (Date.now() - new Date(cached.fetchedAt).getTime()) / 1000
   return Number.isFinite(ageSec) && ageSec <= env.poolPriceTtlSeconds
 }

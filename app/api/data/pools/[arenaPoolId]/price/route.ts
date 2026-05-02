@@ -7,7 +7,7 @@ import {
   resolveArenaPoolContext,
   type ArenaPoolLiveSnapshot,
 } from "@/lib/data/live-pool-tick"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
@@ -22,7 +22,7 @@ export async function GET(
   }
 
   const poolId = arenaPoolId as ArenaPoolId
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
 
   const ctx = resolveArenaPoolContext(poolId)
   if (!ctx) {
@@ -40,7 +40,7 @@ export async function GET(
     return NextResponse.json(
       {
         error:
-          "Configure MONGODB_URI, UNISWAP_V3_SUBGRAPH_URL, or use Base/Base Sepolia with Chainlink spot (ROMBO_RPC_URL optional; feeds use public Base RPC by default).",
+          "Configure MONGODB_URI, UNISWAP_V3_SUBGRAPH_URL, or use Base/Base Sepolia with Chainlink spot (RUMBLE_RPC_URL optional; feeds use public Base RPC by default).",
         code: "NO_DATA_SOURCE",
       },
       { status: 503 },
@@ -74,7 +74,7 @@ export async function GET(
   if (!doc) {
     const chainMismatchHint =
       subgraphReason === "pool not found in subgraph"
-        ? "UNISWAP_V3_SUBGRAPH_URL must be a Uniswap V3 subgraph for the same chain as ROMBO_TARGET_NETWORK / ROMBO_DEFAULT_CHAIN_ID (Base 8453 or Base Sepolia 84532). An Ethereum-mainnet subgraph returns no pools for Base token addresses."
+        ? "UNISWAP_V3_SUBGRAPH_URL must be a Uniswap V3 subgraph for the same chain as RUMBLE_TARGET_NETWORK / RUMBLE_DEFAULT_CHAIN_ID (Base 8453 or Base Sepolia 84532). An Ethereum-mainnet subgraph returns no pools for Base token addresses."
         : undefined
 
     return NextResponse.json(

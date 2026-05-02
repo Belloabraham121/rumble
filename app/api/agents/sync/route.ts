@@ -3,7 +3,7 @@ import { findAgentForUser, upsertManyAgentsForUser } from "@/lib/db/agents.repo"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
 import type { Agent } from "@/lib/agents/agent-types"
 import { prepareAgentForUpsert } from "@/lib/agents/runtime/validate-config"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 function isAgent(v: unknown): v is Agent {
   if (!v || typeof v !== "object") return false
@@ -22,13 +22,13 @@ function isAgent(v: unknown): v is Agent {
 
 /** Bulk upsert — dashboard client pushes full agent state (debounced). */
 export async function PUT(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured." }, { status: 503 })
   }
 
   const identity = await getTradingAuditIdentity()
-  if (!identity?.romboUserIdHex) {
+  if (!identity?.rumbleUserIdHex) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -54,7 +54,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Invalid agent object in array" }, { status: 400 })
     }
     try {
-      const prev = await findAgentForUser(identity.romboUserIdHex, a.id)
+      const prev = await findAgentForUser(identity.rumbleUserIdHex, a.id)
       agents.push(prepareAgentForUpsert(a, prev?.config))
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Validation failed"
@@ -63,7 +63,7 @@ export async function PUT(req: Request) {
   }
 
   await upsertManyAgentsForUser({
-    romboUserIdHex: identity.romboUserIdHex,
+    rumbleUserIdHex: identity.rumbleUserIdHex,
     agents,
   })
 

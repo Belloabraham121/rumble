@@ -2,7 +2,7 @@
 
 import { Toaster as Sonner } from "sonner"
 
-/** Rombo-neutral toasts — matches dashboard borders / `#111` CTAs. */
+/** Rumble-neutral toasts — matches dashboard borders / `#111` CTAs. */
 export function Toaster() {
   return (
     <Sonner

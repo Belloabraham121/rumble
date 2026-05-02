@@ -11,9 +11,9 @@ import {
   findArenaLeaderboardCache,
   upsertArenaLeaderboardCache,
 } from "@/lib/db/arena-leaderboard.repo"
-import type { RomboChainSlug } from "@/lib/rombo/chain-config"
-import { slugFromChainId } from "@/lib/rombo/chain-config"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import type { RumbleChainSlug } from "@/lib/rumble/chain-config"
+import { slugFromChainId } from "@/lib/rumble/chain-config"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 /** Normal cohort-relative score (Phase 5 integration plan). */
 export function computeArenaScore(input: {
@@ -54,7 +54,7 @@ async function metricsForAgents(
         try {
           const metrics = await computeAgentMetrics({
             agentId: doc.agentId,
-            romboUserIdHex: doc.romboUserIdHex,
+            rumbleUserIdHex: doc.rumbleUserIdHex,
             range: metricsRange,
           })
           return { doc, metrics }
@@ -92,7 +92,7 @@ function buildEntriesFromRows(
     const poolLabel = r.doc.config.pool ?? r.doc.config.basePair ?? "—"
     return {
       agentId: r.doc.agentId,
-      romboUserIdHex: r.doc.romboUserIdHex,
+      rumbleUserIdHex: r.doc.rumbleUserIdHex,
       displayName: r.doc.config.name,
       poolLabel,
       pnlNetUsd: r.metrics.netPnlUsd,
@@ -108,7 +108,7 @@ function buildEntriesFromRows(
   return scored.slice(0, MAX_ROWS_STORED).map((row, i) => ({
     rank: i + 1,
     agentId: row.agentId,
-    romboUserIdHex: row.romboUserIdHex,
+    rumbleUserIdHex: row.rumbleUserIdHex,
     displayName: row.displayName,
     poolLabel: row.poolLabel,
     pnlNetUsd: row.pnlNetUsd,
@@ -121,7 +121,7 @@ function buildEntriesFromRows(
 export async function rebuildArenaLeaderboardCache(input: {
   arenaPoolId: ArenaPoolId
   chainId: number
-  chainSlug: RomboChainSlug
+  chainSlug: RumbleChainSlug
   metricsRange: MetricsRange
 }): Promise<ArenaLeaderboardEntry[]> {
   const docs = await listAgentsForArenaLeaderboard({
@@ -142,11 +142,43 @@ export async function rebuildArenaLeaderboardCache(input: {
   return entries
 }
 
+/**
+ * Rebuild leaderboard caches for the arena pools an individual agent trades.
+ * Called fire-and-forget at the end of each agent tick so the leaderboard
+ * reflects this agent's just-recorded activity within seconds rather than
+ * waiting on the daily cron or the on-read stale window.
+ *
+ * Errors are swallowed — leaderboards are non-critical to tick correctness.
+ */
+export async function refreshArenaLeaderboardsForAgent(input: {
+  arenaPoolIds: readonly ArenaPoolId[]
+  chainId: number
+  /** Default to the dashboard's "30d" range — matches the cron + UI default. */
+  metricsRange?: MetricsRange
+}): Promise<void> {
+  const slug = slugFromChainId(input.chainId)
+  if (!slug) return
+
+  const ids = input.arenaPoolIds.length > 0 ? input.arenaPoolIds : ARENA_POOL_IDS
+  const range: MetricsRange = input.metricsRange ?? "30d"
+
+  await Promise.all(
+    ids.map(arenaPoolId =>
+      rebuildArenaLeaderboardCache({
+        arenaPoolId,
+        chainId: input.chainId,
+        chainSlug: slug,
+        metricsRange: range,
+      }).catch(() => {}),
+    ),
+  )
+}
+
 /** Rebuild leaderboard caches for every arena pool on the default deployment chain. */
 export async function rebuildAllArenaLeaderboards(input: {
   metricsRange: MetricsRange
 }): Promise<{ arenaPoolId: ArenaPoolId; chainId: number; rows: number }[]> {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   const chainId = env.defaultChainId
   const slug = slugFromChainId(chainId)
   if (!slug) {
@@ -166,12 +198,18 @@ export async function rebuildAllArenaLeaderboards(input: {
   return results
 }
 
-const CACHE_STALE_MS = 12 * 60 * 1000
+/**
+ * Cache freshness window for `getOrRebuildArenaLeaderboard`. We keep this
+ * short enough that — combined with the post-tick fire-and-forget rebuild
+ * triggered by `refreshArenaLeaderboardsForAgent` — the leaderboard reflects
+ * agent activity within ~30 s of the tick that produced it.
+ */
+const CACHE_STALE_MS = 30 * 1000
 
 export async function getOrRebuildArenaLeaderboard(input: {
   arenaPoolId: ArenaPoolId
   chainId: number
-  chainSlug: RomboChainSlug
+  chainSlug: RumbleChainSlug
   metricsRange: MetricsRange
   force?: boolean
 }): Promise<{ entries: ArenaLeaderboardEntry[]; rebuilt: boolean }> {
@@ -206,7 +244,7 @@ export async function appendHighlightAgentIfNeeded(input: {
   highlightAgentId?: string
   metricsRange: MetricsRange
   arenaPoolId: ArenaPoolId
-  chainSlug: RomboChainSlug
+  chainSlug: RumbleChainSlug
 }): Promise<ArenaLeaderboardEntry[]> {
   if (!input.highlightAgentId) return input.entries
   if (input.entries.some(e => e.agentId === input.highlightAgentId)) return input.entries
@@ -222,7 +260,7 @@ export async function appendHighlightAgentIfNeeded(input: {
   try {
     metrics = await computeAgentMetrics({
       agentId: doc.agentId,
-      romboUserIdHex: doc.romboUserIdHex,
+      rumbleUserIdHex: doc.rumbleUserIdHex,
       range: input.metricsRange,
     })
   } catch {
@@ -248,7 +286,7 @@ export async function appendHighlightAgentIfNeeded(input: {
   const row: ArenaLeaderboardEntry = {
     rank: insertRank,
     agentId: doc.agentId,
-    romboUserIdHex: doc.romboUserIdHex,
+    rumbleUserIdHex: doc.rumbleUserIdHex,
     displayName: doc.config.name,
     poolLabel: doc.config.pool ?? doc.config.basePair ?? "—",
     pnlNetUsd: metrics.netPnlUsd,

@@ -10,7 +10,7 @@ export async function GET() {
   return NextResponse.json({
     user: {
       email: profile.email,
-      romboUserIdHex: profile.romboUserIdHex,
+      rumbleUserIdHex: profile.rumbleUserIdHex,
       embeddedWalletAddress: profile.embeddedWalletAddress,
     },
   })

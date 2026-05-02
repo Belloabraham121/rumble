@@ -15,7 +15,7 @@ import { toast } from "sonner"
 import { base, baseSepolia } from "wagmi/chains"
 import type { Chain, PublicClient, WalletClient } from "viem"
 import { getArenaPoolOnChain } from "@/lib/trading/arena-pool-onchain"
-import type { RomboChainSlug } from "@/lib/rombo/chain-config"
+import type { RumbleChainSlug } from "@/lib/rumble/chain-config"
 import { MINIMAL_LAB_TOKEN_ABI, MINIMAL_LAB_TOKEN_BYTECODE } from "@/lib/liquidity-lab/minimal-lab-token.generated"
 import {
   extractOrderedLpTransactionsClient,
@@ -34,8 +34,8 @@ import {
 import { encodeSqrtRatioX96 } from "@/lib/liquidity-lab/sqrt-price-x96"
 
 const CHAINS = [
-  { id: baseSepolia.id, slug: "base-sepolia" as RomboChainSlug, label: "Base Sepolia" },
-  { id: base.id, slug: "base-mainnet" as RomboChainSlug, label: "Base" },
+  { id: baseSepolia.id, slug: "base-sepolia" as RumbleChainSlug, label: "Base Sepolia" },
+  { id: base.id, slug: "base-mainnet" as RumbleChainSlug, label: "Base" },
 ]
 
 function tickSpacingForFee(fee: number): number {
@@ -342,7 +342,7 @@ export function LiquidityLabClient() {
   const publicClient = usePublicClient()
 
   const activeSlug = useMemo(
-    () => CHAINS.find(c => c.id === chainId)?.slug ?? ("base-sepolia" as RomboChainSlug),
+    () => CHAINS.find(c => c.id === chainId)?.slug ?? ("base-sepolia" as RumbleChainSlug),
     [chainId],
   )
 
@@ -412,7 +412,7 @@ export function LiquidityLabClient() {
     }
     const meta = getArenaPoolOnChain("eth-usdc", activeSlug)
     if (!meta) {
-      toast.error("This chain has no mapped ETH/USDC arena pool in Rombo config.")
+      toast.error("This chain has no mapped ETH/USDC arena pool in Rumble config.")
       return
     }
     if (meta.chainId !== chainId) {
@@ -860,7 +860,7 @@ export function LiquidityLabClient() {
         <h2 className="text-sm font-medium text-black">2 · Add ETH + USDC liquidity (canonical pool)</h2>
         <p className="text-xs text-black/45">
           Uses the canonical <strong className="text-black/60">native ETH + USDC</strong> Uniswap v4 pool on this
-          chain (same USDC as Rombo’s arena mapping). Current tick is read from the v4 PoolManager via RPC; the
+          chain (same USDC as Rumble’s arena mapping). Current tick is read from the v4 PoolManager via RPC; the
           Liquidity API builds mint txs. You sign in your wallet.
         </p>
         <label className="text-xs space-y-1 block max-w-xs">
@@ -945,7 +945,7 @@ export function LiquidityLabClient() {
       <section className="rounded-2xl border border-dashed border-black/15 bg-black/2 p-5 text-xs text-black/50 space-y-2">
         <p>
           Requires <code className="font-mono text-[11px]">UNISWAP_API_KEY</code> on the server (same as the rest
-          of Rombo).
+          of Rumble).
         </p>
       </section>
     </div>

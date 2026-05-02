@@ -1,7 +1,7 @@
 import "server-only"
 
-/** Rombo-only fields — never forward these to Uniswap. */
-const ROMBO_ONLY_REQUEST_META_KEYS = new Set([
+/** Rumble-only fields — never forward these to Uniswap. */
+const RUMBLE_ONLY_REQUEST_META_KEYS = new Set([
   "permit2Disabled",
   "erc20EthEnabled",
   "agentConfig",
@@ -13,15 +13,15 @@ const ROMBO_ONLY_REQUEST_META_KEYS = new Set([
 ])
 
 /**
- * Same as `ROMBO_ONLY_REQUEST_META_KEYS` plus `walletAddress` — Uniswap **Trading** quote/swap bodies
- * use `swapper`, not `walletAddress`; clients often send the latter for Rombo audit only.
+ * Same as `RUMBLE_ONLY_REQUEST_META_KEYS` plus `walletAddress` — Uniswap **Trading** quote/swap bodies
+ * use `swapper`, not `walletAddress`; clients often send the latter for Rumble audit only.
  */
 export const TRADING_REQUEST_META_KEYS = new Set([
-  ...ROMBO_ONLY_REQUEST_META_KEYS,
+  ...RUMBLE_ONLY_REQUEST_META_KEYS,
   "walletAddress",
 ])
 
-/** Strip Rombo-only fields before forwarding JSON to Uniswap Trading API. */
+/** Strip Rumble-only fields before forwarding JSON to Uniswap Trading API. */
 export function stripTradingRequestMeta<T extends Record<string, unknown>>(body: T): Record<string, unknown> {
   const out = { ...body }
   for (const k of TRADING_REQUEST_META_KEYS) {
@@ -31,12 +31,12 @@ export function stripTradingRequestMeta<T extends Record<string, unknown>>(body:
 }
 
 /**
- * Strip Rombo-only fields before forwarding to Uniswap **Liquidity** API.
+ * Strip Rumble-only fields before forwarding to Uniswap **Liquidity** API.
  * Keeps `walletAddress` — required on `/lp/create` and related endpoints.
  */
 export function stripLiquidityRequestMeta<T extends Record<string, unknown>>(body: T): Record<string, unknown> {
   const out = { ...body }
-  for (const k of ROMBO_ONLY_REQUEST_META_KEYS) {
+  for (const k of RUMBLE_ONLY_REQUEST_META_KEYS) {
     delete out[k]
   }
   return out

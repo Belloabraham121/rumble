@@ -4,7 +4,7 @@ import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import type { AgentConfig } from "@/lib/agents/agent-types"
 import { insertTradingAttempt } from "@/lib/db/trading.repo"
 import type { SwapQuoteSnapshot } from "@/lib/trading/swap-quote-snapshot"
-import { RomboUniswapError, UNISWAP_ERROR_CODES } from "@/lib/integrations/uniswap/errors"
+import { RumbleUniswapError, UNISWAP_ERROR_CODES } from "@/lib/integrations/uniswap/errors"
 import { buildAgentQuoteRequestBody } from "@/lib/integrations/uniswap/agent-quote"
 import { tryExtractEip712FromQuote } from "@/lib/integrations/uniswap/eip712-from-quote"
 import {
@@ -16,16 +16,16 @@ import { submitSignedSwapOrOrder } from "@/lib/integrations/uniswap/execute"
 import {
   tryExtractTxHash,
   tryExtractUnsignedTxFromSwapResponse,
-  type RomboUnsignedEthTx,
+  type RumbleUnsignedEthTx,
 } from "@/lib/integrations/uniswap/swap-response-tx"
 import { tryBuildSwapQuoteSnapshot } from "@/lib/integrations/uniswap/swap-quote-amounts"
 import { uniswapQuote } from "@/lib/integrations/uniswap/trading"
 import {
   signAndBroadcastEthereumTransaction,
   signEthereumTypedDataV4,
-  type RomboEthereumTypedDataInput,
+  type RumbleEthereumTypedDataInput,
 } from "@/lib/integrations/privy/wallet-signing"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 import { safeExcerpt } from "@/lib/api/trading-audit"
 import type { RuntimeDecision } from "@/lib/agents/runtime/evaluate-boxes"
 import { executeAgentLpDecision } from "@/lib/agents/runtime/execute-agent-lp"
@@ -33,7 +33,7 @@ import type { ExecuteAgentContext, ExecuteOutcome } from "@/lib/agents/runtime/e
 
 export type { ExecuteAgentContext, ExecuteOutcome } from "@/lib/agents/runtime/execute-types"
 
-function romboTxToPrivy(tx: RomboUnsignedEthTx): Record<string, unknown> {
+function rumbleTxToPrivy(tx: RumbleUnsignedEthTx): Record<string, unknown> {
   return { ...tx }
 }
 
@@ -49,7 +49,7 @@ async function persistAttempt(input: {
   const status = input.error ? ("error" as const) : ("ok" as const)
   let errorCode: string | undefined
   let excerpt: string | undefined
-  if (input.error instanceof RomboUniswapError) {
+  if (input.error instanceof RumbleUniswapError) {
     errorCode = input.error.code
     excerpt = safeExcerpt(input.error.message)
   } else if (input.error instanceof Error) {
@@ -61,7 +61,7 @@ async function persistAttempt(input: {
   const payloadHash = input.payload !== undefined ? hashPayloadForAudit(input.payload) : undefined
 
   await insertTradingAttempt({
-    romboUserIdHex: input.ctx.romboUserIdHex,
+    rumbleUserIdHex: input.ctx.rumbleUserIdHex,
     email: input.ctx.email,
     agentId: input.ctx.agentId,
     idempotencyKey: `${input.ctx.idempotencyKey}:${input.kind}`,
@@ -94,10 +94,14 @@ export async function executeAgentDecision(
     return { ok: false, summary: "unsupported_decision" }
   }
 
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasUniswap) {
     return { ok: false, summary: "uniswap_not_configured", error: "UNISWAP_API_KEY" }
   }
+  if (!ctx.privyWalletId) {
+    return { ok: false, summary: "no_privy_wallet_id", error: "live_execution_disabled" }
+  }
+  const privyWalletId = ctx.privyWalletId
 
   const quoteBody =
     decision.target.kind === "lab"
@@ -128,7 +132,7 @@ export async function executeAgentDecision(
     await persistAttempt({ ctx, kind: "quote", payload: quoteBody, error: e })
     const errorMsg = e instanceof Error ? e.message : String(e)
     const noRouteTestnet =
-      e instanceof RomboUniswapError &&
+      e instanceof RumbleUniswapError &&
       e.code === UNISWAP_ERROR_CODES.NO_QUOTE &&
       (ctx.config.chain === "base-sepolia" || decision.target.kind === "lab")
     return {
@@ -149,7 +153,7 @@ export async function executeAgentDecision(
     return { ok: false, summary: "missing_eip712_in_quote" }
   }
 
-  const typedData: RomboEthereumTypedDataInput = {
+  const typedData: RumbleEthereumTypedDataInput = {
     domain: eip712.domain,
     types: eip712.types,
     primary_type: eip712.primary_type,
@@ -159,7 +163,7 @@ export async function executeAgentDecision(
   let signature: string
   try {
     signature = await signEthereumTypedDataV4({
-      walletId: ctx.privyWalletId,
+      walletId: privyWalletId,
       typedData,
       idempotencyKey: `${ctx.idempotencyKey}:typed`,
     })
@@ -215,9 +219,9 @@ export async function executeAgentDecision(
     if (unsigned) {
       try {
         const { txHash: h } = await signAndBroadcastEthereumTransaction({
-          walletId: ctx.privyWalletId,
+          walletId: privyWalletId,
           chainId: ctx.chainId,
-          transaction: romboTxToPrivy(unsigned),
+          transaction: rumbleTxToPrivy(unsigned),
           idempotencyKey: `${ctx.idempotencyKey}:send`,
         })
         txHash = h

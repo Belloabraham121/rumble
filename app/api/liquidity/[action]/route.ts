@@ -4,7 +4,7 @@ import { maybePersistLpPositionFromLiquidityResponse } from "@/lib/api/liquidity
 import { getTradingAuditIdentity, logTradingAudit } from "@/lib/api/trading-audit"
 import { stripLiquidityRequestMeta } from "@/lib/api/trading-meta"
 import type { TradingAttemptKind } from "@/lib/db/trading.repo"
-import { RomboUniswapError } from "@/lib/integrations/uniswap/errors"
+import { RumbleUniswapError } from "@/lib/integrations/uniswap/errors"
 import {
   uniswapLpCheckApproval,
   uniswapLpClaimFees,
@@ -15,7 +15,7 @@ import {
   uniswapLpMigrate,
 } from "@/lib/integrations/uniswap/liquidity"
 import { withUniswapRetry } from "@/lib/integrations/uniswap/retry"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 const LP_ACTIONS: Record<
   string,
@@ -31,7 +31,7 @@ const LP_ACTIONS: Record<
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ action: string }> }) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasUniswap) {
     return NextResponse.json({ error: "UNISWAP_API_KEY is not configured." }, { status: 503 })
   }
@@ -80,7 +80,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ action: string
     })
 
     await maybePersistLpPositionFromLiquidityResponse({
-      romboUserIdHex: identity.romboUserIdHex,
+      rumbleUserIdHex: identity.rumbleUserIdHex,
       agentId,
       arenaPoolId,
       kind: entry.kind,
@@ -89,7 +89,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ action: string
     })
 
     await maybePersistLabPoolFromNewPoolCreate({
-      romboUserIdHex: identity.romboUserIdHex,
+      rumbleUserIdHex: identity.rumbleUserIdHex,
       action,
       payload,
       response: data,
@@ -108,7 +108,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ action: string
       error: e,
     })
 
-    if (e instanceof RomboUniswapError) {
+    if (e instanceof RumbleUniswapError) {
       return NextResponse.json(
         { error: e.message, code: e.code, requestId: e.requestId },
         { status: 502 },

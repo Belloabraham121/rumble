@@ -55,7 +55,7 @@ async function toastSyncFailure(res: Response) {
 }
 import { toast } from "sonner";
 
-const STORAGE_KEY = "rombo.agents.v1";
+const STORAGE_KEY = "rumble.agents.v1";
 
 type CreateAgentInput = Partial<AgentConfig> & { name: string };
 

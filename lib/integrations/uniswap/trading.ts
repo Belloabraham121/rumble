@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 import { UNISWAP_TRADING_API_BASE } from "@/lib/integrations/uniswap/constants"
 import { fetchUniswap, readUniswapJsonOrThrow } from "@/lib/integrations/uniswap/http"
 
@@ -13,7 +13,7 @@ export type UniswapTradingHeaders = {
 
 function mergeTradingHeaders(base: Headers, extra?: UniswapTradingHeaders): Headers {
   const h = new Headers(base)
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   h.set("x-universal-router-version", env.uniswapUniversalRouterVersion)
   if (extra?.permit2Disabled) {
     h.set("x-permit2-disabled", "true")

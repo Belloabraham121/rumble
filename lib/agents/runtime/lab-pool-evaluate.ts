@@ -16,8 +16,8 @@ import {
 } from "@/lib/agents/runtime/evaluate-boxes"
 import { readUsdFeed } from "@/lib/onchain/chainlink-feeds"
 import { decodeV4Slot0Word, V4_POOL_MANAGER } from "@/lib/liquidity-lab/v4-pool"
-import { ethCall, resolveAgentRuntimeRpcUrl } from "@/lib/rombo/json-rpc"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { ethCall, resolveAgentRuntimeRpcUrl } from "@/lib/rumble/json-rpc"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 import type { PriceBox } from "@/components/dashboard/types"
 
 const ETH_USD_FEEDS: Record<number, Address> = {
@@ -88,7 +88,7 @@ export async function resolveLabPoolDisplayUsd(
 
   let rpcUrl: string
   try {
-    rpcUrl = resolveAgentRuntimeRpcUrl(labPool.chainId, getRomboServerEnv().romboRpcUrl)
+    rpcUrl = resolveAgentRuntimeRpcUrl(labPool.chainId, getRumbleServerEnv().rumbleRpcUrl)
   } catch {
     return { displayUsd: 0, reason: "no_rpc_url" }
   }

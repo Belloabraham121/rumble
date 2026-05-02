@@ -3,8 +3,8 @@ import { ARENA_POOL_IDS, type ArenaPoolId } from "@/lib/agents/arena-pools"
 import { upsertIndexedPoolSnapshot } from "@/lib/db/indexed-pool-snapshots.repo"
 import { fetchV3PoolStatsByAddress, fetchV3PoolStatsByPair } from "@/lib/integrations/uniswap/subgraph"
 import { getArenaPoolOnChain } from "@/lib/trading/arena-pool-onchain"
-import { slugFromChainId } from "@/lib/rombo/chain-config"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { slugFromChainId } from "@/lib/rumble/chain-config"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 /**
  * Public-ish pool stats for dashboard / leaderboard (on-chain aggregate via subgraph).
@@ -13,7 +13,7 @@ import { getRomboServerEnv } from "@/lib/rombo/server-env"
  * Query: `chainId` (required), and either `poolAddress` **or** `arenaPoolId`.
  */
 export async function GET(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasSubgraph) {
     return NextResponse.json(
       { error: "UNISWAP_V3_SUBGRAPH_URL is not configured.", configured: false },
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
 
   const slug = slugFromChainId(chainId)
   if (!slug) {
-    return NextResponse.json({ error: "Unsupported chainId for Rombo slug mapping" }, { status: 400 })
+    return NextResponse.json({ error: "Unsupported chainId for Rumble slug mapping" }, { status: 400 })
   }
 
   try {

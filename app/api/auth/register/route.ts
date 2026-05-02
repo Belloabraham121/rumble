@@ -41,9 +41,9 @@ export async function POST(req: Request) {
   const mongoUser = await upsertUserByEmail(email)
   void syncPrivyUserAfterLogin({
     email,
-    romboUserIdHex: mongoUser?._id.toHexString(),
+    rumbleUserIdHex: mongoUser?._id.toHexString(),
   }).catch(err => {
-    console.error("[rombo] Privy user bridge failed:", err)
+    console.error("[rumble] Privy user bridge failed:", err)
   })
 
   const user: SessionUser = { email }

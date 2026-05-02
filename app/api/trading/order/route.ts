@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server"
 import { getTradingAuditIdentity, logTradingAudit } from "@/lib/api/trading-audit"
 import { stripTradingRequestMeta } from "@/lib/api/trading-meta"
-import { RomboUniswapError } from "@/lib/integrations/uniswap/errors"
+import { RumbleUniswapError } from "@/lib/integrations/uniswap/errors"
 import { withUniswapRetry } from "@/lib/integrations/uniswap/retry"
 import { uniswapPostOrder } from "@/lib/integrations/uniswap/trading"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 /** Submit signed UniswapX **`/order`** (gasless intent). */
 export async function POST(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasUniswap) {
     return NextResponse.json({ error: "UNISWAP_API_KEY is not configured." }, { status: 503 })
   }
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
       error: e,
     })
 
-    if (e instanceof RomboUniswapError) {
+    if (e instanceof RumbleUniswapError) {
       return NextResponse.json(
         { error: e.message, code: e.code, requestId: e.requestId },
         { status: 502 },

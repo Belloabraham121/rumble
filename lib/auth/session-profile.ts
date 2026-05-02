@@ -5,7 +5,7 @@ import { getUserByEmail } from "@/lib/db/users.repo"
 
 export type SessionProfile = {
   email: string
-  romboUserIdHex?: string
+  rumbleUserIdHex?: string
   embeddedWalletAddress?: string
 }
 
@@ -17,7 +17,7 @@ export async function getSessionProfile(): Promise<SessionProfile | null> {
   const row = await getUserByEmail(session.email)
   return {
     email: session.email,
-    romboUserIdHex: row?._id.toHexString(),
+    rumbleUserIdHex: row?._id.toHexString(),
     embeddedWalletAddress: row?.privyEmbeddedWalletAddress,
   }
 }

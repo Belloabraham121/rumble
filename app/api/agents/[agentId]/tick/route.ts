@@ -7,7 +7,7 @@ import {
   type AgentDoc,
 } from "@/lib/db/agents.repo"
 import { runAgentTick } from "@/lib/agents/runtime/tick"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
@@ -16,12 +16,12 @@ async function resolveAgentDoc(req: Request, agentId: string): Promise<AgentDoc 
     return findAgentByAgentId(agentId)
   }
   const identity = await getTradingAuditIdentity()
-  if (!identity?.romboUserIdHex) return "unauthorized"
-  return findAgentForUser(identity.romboUserIdHex, agentId)
+  if (!identity?.rumbleUserIdHex) return "unauthorized"
+  return findAgentForUser(identity.rumbleUserIdHex, agentId)
 }
 
 async function handle(req: Request, ctx: { params: Promise<{ agentId: string }> }) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured." }, { status: 503 })
   }

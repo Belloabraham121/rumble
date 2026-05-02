@@ -5,10 +5,10 @@ import type { User } from "@privy-io/node"
 import { updateUserPrivyBridge } from "@/lib/db/users.repo"
 import { pickEthereumEmbeddedWallet } from "@/lib/integrations/privy/embedded-wallet"
 import { getPrivyServerClient } from "@/lib/integrations/privy/server-client"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 function buildWalletCreationInputs(): Array<{ chain_type: "ethereum"; policy_ids?: string[] }> {
-  const ids = getRomboServerEnv().privyDefaultPolicyIds
+  const ids = getRumbleServerEnv().privyDefaultPolicyIds
   const policyId = ids[0]
   return [{ chain_type: "ethereum", ...(policyId ? { policy_ids: [policyId] } : {}) }]
 }
@@ -16,7 +16,7 @@ function buildWalletCreationInputs(): Array<{ chain_type: "ethereum"; policy_ids
 /** Ensures a Privy user exists for this login email, embedded ETH wallet, and stores ids in Mongo when configured. */
 export async function syncPrivyUserAfterLogin(input: {
   email: string
-  romboUserIdHex?: string
+  rumbleUserIdHex?: string
 }): Promise<void> {
   const client = getPrivyServerClient()
   if (!client) return
@@ -30,7 +30,7 @@ export async function syncPrivyUserAfterLogin(input: {
     if (e instanceof NotFoundError) {
       privyUser = await client.users().create({
         linked_accounts: [{ type: "email", address: email }],
-        custom_metadata: input.romboUserIdHex ? { rombo_user_id: input.romboUserIdHex } : undefined,
+        custom_metadata: input.rumbleUserIdHex ? { rumble_user_id: input.rumbleUserIdHex } : undefined,
         wallets: buildWalletCreationInputs(),
       })
     } else {
@@ -55,10 +55,10 @@ export async function syncPrivyUserAfterLogin(input: {
   const embeddedWalletId = embedded?.id ?? undefined
   const embeddedAddress = embedded?.address
 
-  if (input.romboUserIdHex) {
+  if (input.rumbleUserIdHex) {
     try {
       await client.users().setCustomMetadata(refreshed.id, {
-        custom_metadata: { rombo_user_id: input.romboUserIdHex },
+        custom_metadata: { rumble_user_id: input.rumbleUserIdHex },
       })
     } catch (e) {
       console.error("[privy] setCustomMetadata failed:", e)

@@ -1,6 +1,6 @@
 import "server-only"
 
-import { RomboUniswapError, UNISWAP_ERROR_CODES, type UniswapErrorCode } from "@/lib/integrations/uniswap/errors"
+import { RumbleUniswapError, UNISWAP_ERROR_CODES, type UniswapErrorCode } from "@/lib/integrations/uniswap/errors"
 
 const DEFAULT_RETRYABLE: UniswapErrorCode[] = [
   UNISWAP_ERROR_CODES.RATE_LIMITED,
@@ -43,7 +43,7 @@ export async function withUniswapRetry<T>(fn: () => Promise<T>, opts?: UniswapRe
     } catch (e) {
       lastErr = e
       const retryable =
-        e instanceof RomboUniswapError && retryOn.has(e.code as UniswapErrorCode) && attempt < maxAttempts
+        e instanceof RumbleUniswapError && retryOn.has(e.code as UniswapErrorCode) && attempt < maxAttempts
       if (!retryable) throw e
 
       const exp = Math.min(maxDelay, base * 2 ** (attempt - 1))

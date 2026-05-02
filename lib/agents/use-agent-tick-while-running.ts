@@ -4,13 +4,17 @@ import { useEffect, useRef } from "react"
 
 /**
  * While the dashboard is open and the agent status is **running**, periodically POST
- * `/api/agents/[agentId]/tick` with the user session. Vercel cron does not run during
- * `npm run dev`, so without this nothing executes locally.
+ * `/api/agents/[agentId]/tick` with the user session. Vercel cron has minute-level
+ * granularity — sub-minute frequency must come from this client driver.
+ *
+ * Default `intervalMs` is 1s for the live-sim dashboard. The `busy` guard prevents
+ * overlap if a tick takes longer than the interval (e.g. an LLM call), so increasing
+ * frequency is safe — slow ticks just back off naturally.
  */
 export function useAgentTickWhileRunning(
   agentId: string | undefined,
   running: boolean,
-  intervalMs = 60_000,
+  intervalMs = 1_000,
 ) {
   const busy = useRef(false)
 

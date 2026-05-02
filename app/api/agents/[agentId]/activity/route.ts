@@ -2,23 +2,23 @@ import { NextResponse } from "next/server"
 import { findAgentForUser } from "@/lib/db/agents.repo"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
 import { loadAgentActivityEvents } from "@/lib/agents/activity-join"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request, ctx: { params: Promise<{ agentId: string }> }) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured." }, { status: 503 })
   }
 
   const identity = await getTradingAuditIdentity()
-  if (!identity?.romboUserIdHex) {
+  if (!identity?.rumbleUserIdHex) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
   const { agentId } = await ctx.params
-  const agent = await findAgentForUser(identity.romboUserIdHex, agentId)
+  const agent = await findAgentForUser(identity.rumbleUserIdHex, agentId)
   if (!agent) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
@@ -35,7 +35,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ agentId: string
   }
 
   const { events, nextCursor } = await loadAgentActivityEvents({
-    romboUserIdHex: identity.romboUserIdHex,
+    rumbleUserIdHex: identity.rumbleUserIdHex,
     agentId,
     limit,
     cursor,

@@ -1,5 +1,5 @@
 /**
- * Stable Rombo error codes for Uniswap Labs HTTP APIs (Trading + Liquidity).
+ * Stable Rumble error codes for Uniswap Labs HTTP APIs (Trading + Liquidity).
  * Map HTTP status + optional body text → classify failures for logs/UI/Mongo.
  *
  * Official troubleshooting: https://developers.uniswap.org/docs/trading/swapping-api/common-errors
@@ -33,7 +33,7 @@ export type ClassifyUniswapFailureInput = {
   bodyText?: string
 }
 
-export class RomboUniswapError extends Error {
+export class RumbleUniswapError extends Error {
   readonly code: UniswapErrorCode
   readonly httpStatus?: number
   readonly requestId?: string
@@ -44,7 +44,7 @@ export class RomboUniswapError extends Error {
     options?: { httpStatus?: number; requestId?: string; cause?: unknown },
   ) {
     super(message, options?.cause ? { cause: options.cause } : undefined)
-    this.name = "RomboUniswapError"
+    this.name = "RumbleUniswapError"
     this.code = code
     this.httpStatus = options?.httpStatus
     this.requestId = options?.requestId
@@ -62,27 +62,27 @@ function tryParseRequestId(bodyText: string): string | undefined {
 }
 
 /**
- * Classify an Uniswap HTTP failure into a stable code + RomboUniswapError.
+ * Classify an Uniswap HTTP failure into a stable code + RumbleUniswapError.
  */
-export function classifyUniswapHttpFailure(input: ClassifyUniswapFailureInput): RomboUniswapError {
+export function classifyUniswapHttpFailure(input: ClassifyUniswapFailureInput): RumbleUniswapError {
   const { httpStatus, bodyText = "" } = input
   const requestId = bodyText.length > 0 ? tryParseRequestId(bodyText) : undefined
 
   switch (httpStatus) {
     case 429:
-      return new RomboUniswapError(
+      return new RumbleUniswapError(
         UNISWAP_ERROR_CODES.RATE_LIMITED,
         "Uniswap API rate limit exceeded (default 6 RPS per key). Pause and retry with backoff.",
         { httpStatus, requestId },
       )
     case 401:
-      return new RomboUniswapError(
+      return new RumbleUniswapError(
         UNISWAP_ERROR_CODES.UNAUTHORIZED,
         "Uniswap API unauthorized — check x-api-key and Accept/Content-Type: application/json.",
         { httpStatus, requestId },
       )
     case 400:
-      return new RomboUniswapError(
+      return new RumbleUniswapError(
         UNISWAP_ERROR_CODES.VALIDATION,
         bodyText.slice(0, 500) || "Uniswap API validation error (400).",
         { httpStatus, requestId },
@@ -92,24 +92,24 @@ export function classifyUniswapHttpFailure(input: ClassifyUniswapFailureInput): 
       const msg = detail
         ? `No quote (HTTP 404). ${detail}`
         : "No quote (HTTP 404) — empty response body. See Uniswap supported chains, token addresses, and pool liquidity."
-      return new RomboUniswapError(UNISWAP_ERROR_CODES.NO_QUOTE, msg, { httpStatus, requestId })
+      return new RumbleUniswapError(UNISWAP_ERROR_CODES.NO_QUOTE, msg, { httpStatus, requestId })
     }
     case 500: {
       const detail = bodyText.trim().slice(0, 500)
-      return new RomboUniswapError(
+      return new RumbleUniswapError(
         UNISWAP_ERROR_CODES.SERVER_ERROR,
         detail || "Uniswap API server error (500). Retry with backoff.",
         { httpStatus, requestId },
       )
     }
     case 504:
-      return new RomboUniswapError(
+      return new RumbleUniswapError(
         UNISWAP_ERROR_CODES.GATEWAY_TIMEOUT,
         "Uniswap API gateway timeout (504). Retry with backoff.",
         { httpStatus, requestId },
       )
     default:
-      return new RomboUniswapError(
+      return new RumbleUniswapError(
         UNISWAP_ERROR_CODES.UNKNOWN,
         `Uniswap API error (HTTP ${httpStatus}). ${bodyText.slice(0, 300)}`,
         { httpStatus, requestId },
@@ -117,9 +117,9 @@ export function classifyUniswapHttpFailure(input: ClassifyUniswapFailureInput): 
   }
 }
 
-export function classifyUniswapNetworkFailure(err: unknown): RomboUniswapError {
+export function classifyUniswapNetworkFailure(err: unknown): RumbleUniswapError {
   const msg = err instanceof Error ? err.message : String(err)
-  return new RomboUniswapError(UNISWAP_ERROR_CODES.NETWORK, msg, {
+  return new RumbleUniswapError(UNISWAP_ERROR_CODES.NETWORK, msg, {
     cause: err instanceof Error ? err : undefined,
   })
 }

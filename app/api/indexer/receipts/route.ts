@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
 import { listOnchainReceiptsForAgent } from "@/lib/db/onchain-receipts.repo"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 /**
  * List persisted receipts for an agent (dashboard / Transactions page backing store).
  */
 export async function GET(req: Request) {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json({ error: "MongoDB is not configured." }, { status: 503 })
   }
@@ -16,9 +16,9 @@ export async function GET(req: Request) {
   if (!identity) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  if (!identity.romboUserIdHex) {
+  if (!identity.rumbleUserIdHex) {
     return NextResponse.json(
-      { error: "Account is not linked to a persisted Rombo user id." },
+      { error: "Account is not linked to a persisted Rumble user id." },
       { status: 403 },
     )
   }
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
 
   const rows = await listOnchainReceiptsForAgent({
     agentId,
-    romboUserIdHex: identity.romboUserIdHex,
+    rumbleUserIdHex: identity.rumbleUserIdHex,
     limit,
   })
 

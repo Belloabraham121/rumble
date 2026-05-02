@@ -11,13 +11,13 @@ import "server-only"
  */
 
 import { PrivyClient } from "@privy-io/node"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 let cached: PrivyClient | null | undefined
 
 /** Returns null when `PRIVY_APP_ID` / `PRIVY_APP_SECRET` are unset. */
 export function getPrivyServerClient(): PrivyClient | null {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasPrivyApp || !env.privyAppId || !env.privyAppSecret) {
     cached = null
     return null
@@ -33,7 +33,7 @@ export function getPrivyServerClient(): PrivyClient | null {
 
 /** Private key material for signing Wallet API requests (agent / automation). */
 export function getPrivyWalletAuthorizationPrivateKey(): string | undefined {
-  return getRomboServerEnv().privyWalletAuthorizationPrivateKey
+  return getRumbleServerEnv().privyWalletAuthorizationPrivateKey
 }
 
 export { generateAuthorizationSignature, type AuthorizationContext } from "@privy-io/node"

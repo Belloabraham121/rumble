@@ -4,7 +4,7 @@ import type { Wallet } from "@privy-io/node"
 import { findAgentWallet, upsertAgentWalletRecord } from "@/lib/db/agent-wallets.repo"
 import { requireWalletAuthorizationContext } from "@/lib/integrations/privy/authz-context"
 import { getPrivyServerClient } from "@/lib/integrations/privy/server-client"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 
 /** Privy `external_id`: URL-safe, max 64 chars ([a-zA-Z0-9_-]). */
 export function sanitizePrivyExternalId(agentId: string): string {
@@ -13,14 +13,14 @@ export function sanitizePrivyExternalId(agentId: string): string {
 }
 
 export type EnsureAgentWalletInput = {
-  romboUserIdHex: string
+  rumbleUserIdHex: string
   privyUserId: string
   agentId: string
 }
 
 /** Creates or returns the Privy programmatic wallet for an arena agent (owner = human Privy user). */
 export async function ensureAgentPrivyWallet(input: EnsureAgentWalletInput): Promise<Wallet | null> {
-  const existing = await findAgentWallet(input.romboUserIdHex, input.agentId)
+  const existing = await findAgentWallet(input.rumbleUserIdHex, input.agentId)
   const client = getPrivyServerClient()
 
   if (!client) return null
@@ -37,7 +37,7 @@ export async function ensureAgentPrivyWallet(input: EnsureAgentWalletInput): Pro
   // `authorization_context` into `wallets().create` — current Privy Wallet API rejects it (400 unrecognized_keys).
   requireWalletAuthorizationContext()
 
-  const policyIds = getRomboServerEnv().privyDefaultPolicyIds
+  const policyIds = getRumbleServerEnv().privyDefaultPolicyIds
   const policySlice = policyIds[0] ? [policyIds[0]] : undefined
 
   const wallet = await client.wallets().create({
@@ -45,13 +45,13 @@ export async function ensureAgentPrivyWallet(input: EnsureAgentWalletInput): Pro
     owner: { user_id: input.privyUserId },
     external_id: sanitizePrivyExternalId(input.agentId),
     policy_ids: policySlice,
-    idempotency_key: `rombo-agent-${input.romboUserIdHex}-${input.agentId}`,
+    idempotency_key: `rumble-agent-${input.rumbleUserIdHex}-${input.agentId}`,
   })
 
   await upsertAgentWalletRecord({
-    romboUserId: input.romboUserIdHex,
+    rumbleUserId: input.rumbleUserIdHex,
     agentId: input.agentId,
-    chainId: getRomboServerEnv().defaultChainId,
+    chainId: getRumbleServerEnv().defaultChainId,
     privyWalletId: wallet.id,
     address: wallet.address,
     policyIds: policySlice,

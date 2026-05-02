@@ -12,7 +12,7 @@ import { insertTradingAttempt } from "@/lib/db/trading.repo"
 import { findLpPositionForAgentPool } from "@/lib/db/lp-positions.repo"
 import { getPoolPrice } from "@/lib/data/pool-prices.repo"
 import { refreshPoolPrice } from "@/lib/data/live-pool-tick"
-import { RomboUniswapError } from "@/lib/integrations/uniswap/errors"
+import { RumbleUniswapError } from "@/lib/integrations/uniswap/errors"
 import { parseAgentSlippageTolerancePercent } from "@/lib/integrations/uniswap/agent-quote"
 import { extractOrderedLpTransactions } from "@/lib/integrations/uniswap/lp-response-tx"
 import {
@@ -26,12 +26,12 @@ import {
   uniswapLpIncrease,
 } from "@/lib/integrations/uniswap/liquidity"
 import { signAndBroadcastEthereumTransaction } from "@/lib/integrations/privy/wallet-signing"
-import { tryExtractTxHash, type RomboUnsignedEthTx } from "@/lib/integrations/uniswap/swap-response-tx"
+import { tryExtractTxHash, type RumbleUnsignedEthTx } from "@/lib/integrations/uniswap/swap-response-tx"
 import { getArenaPoolOnChain } from "@/lib/trading/arena-pool-onchain"
-import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { getRumbleServerEnv } from "@/lib/rumble/server-env"
 import type { PriceBox } from "@/components/dashboard/types"
 
-function romboTxToPrivy(tx: RomboUnsignedEthTx): Record<string, unknown> {
+function rumbleTxToPrivy(tx: RumbleUnsignedEthTx): Record<string, unknown> {
   return { ...tx }
 }
 
@@ -91,7 +91,7 @@ async function persistLpAttempt(input: {
   const status = input.error ? ("error" as const) : ("ok" as const)
   let errorCode: string | undefined
   let excerpt: string | undefined
-  if (input.error instanceof RomboUniswapError) {
+  if (input.error instanceof RumbleUniswapError) {
     errorCode = input.error.code
     excerpt = safeExcerpt(input.error.message)
   } else if (input.error instanceof Error) {
@@ -103,7 +103,7 @@ async function persistLpAttempt(input: {
   const payloadHash = input.payload !== undefined ? hashPayloadForAudit(input.payload) : undefined
 
   await insertTradingAttempt({
-    romboUserIdHex: input.ctx.romboUserIdHex,
+    rumbleUserIdHex: input.ctx.rumbleUserIdHex,
     email: input.ctx.email,
     agentId: input.ctx.agentId,
     idempotencyKey: `${input.ctx.idempotencyKey}:${input.idempotencySuffix}`,
@@ -140,18 +140,22 @@ async function resolvePoolDoc(input: {
 }
 
 async function broadcastLpTransactions(
-  txs: RomboUnsignedEthTx[],
+  txs: RumbleUnsignedEthTx[],
   ctx: ExecuteAgentContext,
   baseSuffix: string,
 ): Promise<{ txHash?: string; error?: string }> {
+  if (!ctx.privyWalletId) {
+    return { error: "no_privy_wallet_id" }
+  }
+  const privyWalletId = ctx.privyWalletId
   let lastHash: string | undefined
   let i = 0
   for (const tx of txs) {
     try {
       const { txHash } = await signAndBroadcastEthereumTransaction({
-        walletId: ctx.privyWalletId,
+        walletId: privyWalletId,
         chainId: ctx.chainId,
-        transaction: romboTxToPrivy(tx),
+        transaction: rumbleTxToPrivy(tx),
         idempotencyKey: `${ctx.idempotencyKey}:${baseSuffix}:${i}`,
       })
       lastHash = txHash
@@ -173,7 +177,7 @@ export async function executeAgentLpDecision(
   decision: LpDecision,
   ctx: ExecuteAgentContext,
 ): Promise<ExecuteOutcome> {
-  const env = getRomboServerEnv()
+  const env = getRumbleServerEnv()
   if (!env.hasUniswap) {
     return { ok: false, summary: "uniswap_not_configured", error: "UNISWAP_API_KEY" }
   }
@@ -349,7 +353,7 @@ export async function executeAgentLpDecision(
     })
 
     await maybePersistLpPositionFromLiquidityResponse({
-      romboUserIdHex: ctx.romboUserIdHex,
+      rumbleUserIdHex: ctx.rumbleUserIdHex,
       agentId: ctx.agentId,
       arenaPoolId,
       kind: "lp_increase",
@@ -428,7 +432,7 @@ export async function executeAgentLpDecision(
   })
 
   await maybePersistLpPositionFromLiquidityResponse({
-    romboUserIdHex: ctx.romboUserIdHex,
+    rumbleUserIdHex: ctx.rumbleUserIdHex,
     agentId: ctx.agentId,
     arenaPoolId,
     kind: "lp_create",

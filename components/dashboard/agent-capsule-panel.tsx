@@ -15,7 +15,7 @@ import {
   type ArenaPoolId,
 } from "@/lib/agents/arena-pools"
 import { LabPoolPicker } from "@/components/dashboard/lab-pool-picker"
-import { chainDisplayName } from "@/lib/rombo/chain-config"
+import { chainDisplayName } from "@/lib/rumble/chain-config"
 import type { PriceBox } from "@/components/dashboard/types"
 
 const BAR = {
@@ -182,7 +182,7 @@ export function AgentCapsulePanel({
           Configure & run
         </h2>
         <p className="mt-1.5 text-[11px] text-black/38 leading-snug">
-          Matches Rombo agent spec — synced when you&apos;re signed in with Mongo configured.
+          Matches Rumble agent spec — synced when you&apos;re signed in with Mongo configured.
         </p>
       </div>
 
@@ -466,7 +466,7 @@ export function AgentCapsulePanel({
         <code className="rounded bg-black/[0.06] px-1 font-mono text-[9px]">no_box_hit</code>.
         OpenAI (when OPENAI_API_KEY is set) picks among boxes whose ranges contain the coordinate — execution still requires UNISWAP_API_KEY, a funded agent wallet, and{" "}
         <code className="rounded bg-black/[0.06] px-1 font-mono text-[9px]">
-          ROMBO_AGENT_RUNTIME_EXECUTE_SWAPS
+          RUMBLE_AGENT_RUNTIME_EXECUTE_SWAPS
         </code>{" "}
         not set to <code className="font-mono text-[9px]">false</code>.
       </p>

@@ -1,9 +1,9 @@
 /**
- * Known token addresses for Rombo chains — verify on-chain before mainnet funds.
+ * Known token addresses for Rumble chains — verify on-chain before mainnet funds.
  * Symbols are matched case-insensitively; `ETH` maps to wrapped native for ERC-20 swap paths.
  */
 
-import type { RomboChainSlug } from "@/lib/rombo/chain-config"
+import type { RumbleChainSlug } from "@/lib/rumble/chain-config"
 
 type TokenMap = Record<string, string>
 
@@ -25,7 +25,7 @@ const BASE_MAINNET: TokenMap = {
   usdt: "0xfde4C96c8593536E31F229EA8f37b2ADa2699f2c",
 }
 
-const BY_SLUG: Partial<Record<RomboChainSlug, TokenMap>> = {
+const BY_SLUG: Partial<Record<RumbleChainSlug, TokenMap>> = {
   "base-sepolia": BASE_SEPOLIA,
   "base-mainnet": BASE_MAINNET,
 }
@@ -40,7 +40,7 @@ export function resolveTradingTokenAddress(
   const s = symbolOrAddress.trim()
   if (ADDR_RE.test(s)) return s.toLowerCase()
 
-  const map = BY_SLUG[chainSlug as RomboChainSlug]
+  const map = BY_SLUG[chainSlug as RumbleChainSlug]
   if (!map) return undefined
   const key = s.toLowerCase().replace(/\s+/g, "")
   return map[key]
