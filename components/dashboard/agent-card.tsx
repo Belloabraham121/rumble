@@ -53,6 +53,9 @@ export function AgentCard({ agent, onPauseToggle, onRemove }: Props) {
             {agent.config.name}
           </h3>
           <p className="text-[10px] text-black/40 truncate mt-0.5">{agent.config.pool}</p>
+          <p className="text-[9px] text-black/35 mt-0.5">
+            v{agent.config.version} · <span className="capitalize">{agent.config.riskLevel}</span>
+          </p>
         </div>
         <Link
           href={`/dashboard/agents/${agent.id}`}

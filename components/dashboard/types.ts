@@ -10,4 +10,6 @@ export type PriceBox = {
   color: string
   /** Shown on box hit overlay, e.g. "+0.12 ETH" */
   hitLabel: string
+  /** % of capital allocated when this box fires (`agent.md`). */
+  amountPercent?: string
 }

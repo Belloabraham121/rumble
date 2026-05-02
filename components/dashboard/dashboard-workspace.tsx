@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { AgentChartCanvas } from "@/components/dashboard/agent-chart-canvas"
-import { AgentCapsulePanel, DEFAULT_BOXES } from "@/components/dashboard/agent-capsule-panel"
+import { AgentCapsulePanel } from "@/components/dashboard/agent-capsule-panel"
 import { DashboardActivityFeed } from "@/components/dashboard/dashboard-activity-feed"
 import { DashboardArenaBoard } from "@/components/dashboard/dashboard-arena-board"
 import { DashboardMetrics } from "@/components/dashboard/dashboard-metrics"
@@ -21,9 +21,7 @@ type Props = {
 
 export function DashboardWorkspace({ agentId }: Props) {
   const agent = useAgent(agentId)
-  const { updateConfig, setStatus, recordResolution, ready } = useAgentsStore()
-
-  const [, setBoxes] = useState<PriceBox[]>(DEFAULT_BOXES)
+  const { updateConfig, updateBoxes, setStatus, recordResolution, ready } = useAgentsStore()
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
   const [livePrice, setLivePrice] = useState(2306.94)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -48,6 +46,14 @@ export function DashboardWorkspace({ agentId }: Props) {
       updateConfig(agentId, patch)
     },
     [agentId, updateConfig],
+  )
+
+  const handleBoxesChange = useCallback(
+    (next: PriceBox[]) => {
+      if (!agentId) return
+      updateBoxes(agentId, next)
+    },
+    [agentId, updateBoxes],
   )
 
   const activity = agent?.activity ?? []
@@ -155,9 +161,10 @@ export function DashboardWorkspace({ agentId }: Props) {
             <AgentCapsulePanel
               config={config}
               onConfigChange={handleConfigChange}
+              boxes={agent.boxes}
+              onBoxesChange={handleBoxesChange}
               agentStatus={agentStatus}
               onStatusChange={s => setStatus(agentId, s)}
-              onApplyBoxes={setBoxes}
             />
           </div>
         </aside>

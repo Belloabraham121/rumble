@@ -11,9 +11,14 @@ import {
   type ReactNode,
 } from "react"
 import type { AgentActivityEvent, ArenaResolutionPayload } from "@/components/dashboard/activity-types"
+import type { PriceBox } from "@/components/dashboard/types"
 import { buildActivityFromHit } from "@/components/dashboard/synthesize-activity"
 import {
   DEFAULT_AGENT_CONFIG,
+  DEFAULT_RUNTIME_BOXES,
+  migrateAgentConfig,
+  migratePriceBox,
+  perturbRuntimePriceBoxes,
   type Agent,
   type AgentConfig,
   type AgentStatus,
@@ -23,6 +28,8 @@ import {
 const STORAGE_KEY = "rombo.agents.v1"
 const MAX_EVENTS_PER_AGENT = 120
 const BACKGROUND_TICK_MS = 850
+/** How often live-runtime price boxes drift when `runtimeBoxesLive` is on. */
+const RUNTIME_BOX_TICK_MS = 780
 /** Skip the background tick for an agent if its chart just fired a resolution within this window. */
 const LIVE_DRIVE_GRACE_MS = 1500
 
@@ -34,6 +41,7 @@ type AgentsContextValue = {
   createAgent: (input: CreateAgentInput) => Agent
   removeAgent: (id: string) => void
   updateConfig: (id: string, patch: Partial<AgentConfig>) => void
+  updateBoxes: (id: string, boxes: PriceBox[]) => void
   setStatus: (id: string, status: AgentStatus) => void
   recordResolution: (id: string, payload: ArenaResolutionPayload) => void
 }
@@ -69,6 +77,33 @@ function simulateBackgroundPayload(): ArenaResolutionPayload {
   return { hit, mult, payoutEth }
 }
 
+function hydrateStoredAgent(raw: Record<string, unknown>): Agent {
+  const cfgIn = raw.config as Partial<AgentConfig> | undefined
+  const cfg = migrateAgentConfig(cfgIn ?? {})
+  const totalsIn = raw.totals as Partial<AgentTotals> | undefined
+  const totals: AgentTotals = {
+    pnlEth: 0,
+    gasGwei: 0,
+    fills: 0,
+    skips: 0,
+    ...totalsIn,
+  }
+  const activity = Array.isArray(raw.activity) ? (raw.activity as AgentActivityEvent[]) : []
+  let boxes: PriceBox[] = DEFAULT_RUNTIME_BOXES.map(b => ({ ...b }))
+  if (Array.isArray(raw.boxes) && raw.boxes.length > 0) {
+    boxes = (raw.boxes as PriceBox[]).map(b => migratePriceBox(b))
+  }
+  return {
+    id: String(raw.id ?? newId()),
+    status: raw.status === "paused" ? "paused" : "running",
+    createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+    config: cfg,
+    boxes,
+    totals,
+    activity,
+  }
+}
+
 export function AgentsStoreProvider({ children }: { children: ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [ready, setReady] = useState(false)
@@ -79,8 +114,8 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY)
       if (raw) {
-        const parsed = JSON.parse(raw) as Agent[]
-        if (Array.isArray(parsed)) setAgents(parsed)
+        const parsed = JSON.parse(raw) as unknown[]
+        if (Array.isArray(parsed)) setAgents(parsed.map(p => hydrateStoredAgent(p as Record<string, unknown>)))
       }
     } catch {
       // ignore corrupted storage
@@ -104,12 +139,17 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
       id,
       status: "running",
       createdAt: Date.now(),
-      config: { ...DEFAULT_AGENT_CONFIG, ...input },
+      config: migrateAgentConfig({ ...DEFAULT_AGENT_CONFIG, ...input }),
+      boxes: DEFAULT_RUNTIME_BOXES.map(b => ({ ...b })),
       totals: { pnlEth: 0, gasGwei: 0, fills: 0, skips: 0 },
       activity: [],
     }
     setAgents(prev => [...prev, next])
     return next
+  }, [])
+
+  const updateBoxes = useCallback<AgentsContextValue["updateBoxes"]>((id, boxes) => {
+    setAgents(prev => prev.map(a => (a.id === id ? { ...a, boxes } : a)))
   }, [])
 
   const removeAgent = useCallback<AgentsContextValue["removeAgent"]>(id => {
@@ -170,9 +210,31 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(handle)
   }, [ready, agents, appendResolution])
 
+  useEffect(() => {
+    if (!ready) return
+    const handle = window.setInterval(() => {
+      setAgents(prev =>
+        prev.map(a => {
+          if (!a.config.runtimeBoxesLive) return a
+          return { ...a, boxes: perturbRuntimePriceBoxes(a.boxes) }
+        }),
+      )
+    }, RUNTIME_BOX_TICK_MS)
+    return () => window.clearInterval(handle)
+  }, [ready])
+
   const value = useMemo<AgentsContextValue>(
-    () => ({ agents, ready, createAgent, removeAgent, updateConfig, setStatus, recordResolution }),
-    [agents, ready, createAgent, removeAgent, updateConfig, setStatus, recordResolution],
+    () => ({
+      agents,
+      ready,
+      createAgent,
+      removeAgent,
+      updateConfig,
+      updateBoxes,
+      setStatus,
+      recordResolution,
+    }),
+    [agents, ready, createAgent, removeAgent, updateConfig, updateBoxes, setStatus, recordResolution],
   )
 
   return <AgentsContext.Provider value={value}>{children}</AgentsContext.Provider>
