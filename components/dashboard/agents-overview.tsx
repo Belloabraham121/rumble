@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AgentCard } from "@/components/dashboard/agent-card";
 import { CreateAgentModal } from "@/components/dashboard/create-agent-modal";
 import { OverviewMetrics } from "@/components/dashboard/overview-metrics";
+import type { DashboardOverviewMetrics } from "@/lib/dashboard/overview-metrics";
 import { useAgentsStore } from "@/lib/agents/agents-store";
 import type { AgentConfig, AgentStatus } from "@/lib/agents/agent-types";
 
@@ -13,11 +14,59 @@ export function AgentsOverview() {
   const { agents, ready, createAgent, removeAgent, setStatus } =
     useAgentsStore();
   const [creatingOpen, setCreatingOpen] = useState(false);
+  const [overview, setOverview] = useState<DashboardOverviewMetrics | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [overviewReady, setOverviewReady] = useState(false);
 
   const sortedAgents = useMemo(
     () => [...agents].sort((a, b) => b.createdAt - a.createdAt),
     [agents],
   );
+
+  const refreshOverview = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dashboard/overview", {
+        credentials: "same-origin",
+      });
+      if (!res.ok) {
+        setOverview(null);
+        setOverviewReady(true);
+        return;
+      }
+      const data = (await res.json()) as { metrics?: DashboardOverviewMetrics };
+      if (data.metrics) {
+        setOverview(data.metrics);
+        setOverviewReady(true);
+      } else {
+        setOverview(null);
+        setOverviewReady(true);
+      }
+    } catch {
+      setOverview(null);
+      setOverviewReady(true);
+    } finally {
+      setOverviewLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshOverview();
+  }, [refreshOverview]);
+
+  /** Re-fetch when agent list size changes (create / delete). */
+  useEffect(() => {
+    if (!ready) return;
+    void refreshOverview();
+  }, [sortedAgents.length, ready, refreshOverview]);
+
+  /** Periodic refresh so Mongo-backed plates catch up after `PUT /api/agents/sync`. */
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void refreshOverview();
+    }, 12000);
+    return () => window.clearInterval(id);
+  }, [refreshOverview]);
+
   const existingNames = useMemo(
     () => agents.map((a) => a.config.name),
     [agents],
@@ -59,7 +108,12 @@ export function AgentsOverview() {
         </button>
       </div>
 
-      <OverviewMetrics agents={sortedAgents} />
+      <OverviewMetrics
+        agents={sortedAgents}
+        overview={overview}
+        overviewLoading={overviewLoading}
+        overviewReady={overviewReady}
+      />
 
       {!ready ? (
         <div className="py-12 text-center text-[12px] text-black/40">

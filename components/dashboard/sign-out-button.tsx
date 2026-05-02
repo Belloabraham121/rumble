@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useState } from "react"
+import { toast } from "sonner"
 
 export function SignOutButton() {
   const router = useRouter()
@@ -11,6 +12,7 @@ export function SignOutButton() {
     setPending(true)
     try {
       await fetch("/api/auth/logout", { method: "POST" })
+      toast.success("Signed out")
       router.push("/")
       router.refresh()
     } finally {

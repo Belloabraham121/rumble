@@ -1,7 +1,7 @@
 "use client"
 
 import { Suspense } from "react"
-import { SignInForm } from "./sign-in-form"
+import { AuthForm } from "./auth-form"
 
 function FormFallback() {
   return (
@@ -12,7 +12,7 @@ function FormFallback() {
 export function SignInFormWithSuspense() {
   return (
     <Suspense fallback={<FormFallback />}>
-      <SignInForm />
+      <AuthForm />
     </Suspense>
   )
 }

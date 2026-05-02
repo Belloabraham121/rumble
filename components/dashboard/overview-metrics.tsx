@@ -1,29 +1,49 @@
 "use client"
 
+import { useMemo } from "react"
 import { formatPnlUsdc } from "@/components/dashboard/pnl-usdc"
 import type { Agent } from "@/lib/agents/agent-types"
+import {
+  computeOverviewMetrics,
+  type DashboardOverviewMetrics,
+} from "@/lib/dashboard/overview-metrics"
 
 type Props = {
   agents: Agent[]
+  /** From `GET /api/dashboard/overview` — persisted Mongo aggregates when logged in. */
+  overview?: DashboardOverviewMetrics | null
+  /** True until the first overview request settles (success or error). */
+  overviewLoading?: boolean
+  /** When true, plates prefer API metrics once `overview` is set; otherwise local-only. */
+  overviewReady?: boolean
 }
 
-export function OverviewMetrics({ agents }: Props) {
-  const running = agents.filter(a => a.status === "running").length
-  const totalPnl = agents.reduce((acc, a) => acc + a.totals.pnlEth, 0)
-  const totalActions = agents.reduce((acc, a) => acc + a.totals.fills + a.totals.skips, 0)
-  const totalFills = agents.reduce((acc, a) => acc + a.totals.fills, 0)
-  const winRate = totalActions > 0 ? totalFills / totalActions : 0
+export function OverviewMetrics({
+  agents,
+  overview,
+  overviewLoading = false,
+  overviewReady = false,
+}: Props) {
+  const local = useMemo(() => computeOverviewMetrics(agents), [agents])
+  const useRemote = overviewReady && overview !== null
+  const m: DashboardOverviewMetrics = useRemote && overview ? overview : local
 
   const cards = [
-    { label: "Agents", value: `${agents.length}`, sub: `${running} running` },
+    { label: "Agents", value: `${m.agentCount}`, sub: `${m.runningCount} running` },
     {
       label: "Total PnL",
-      value: formatPnlUsdc(totalPnl),
-      sub: "all agents · simulated · ETH→USDC @ ref",
-      accent: totalPnl >= 0 ? "text-emerald-700" : "text-red-700",
+      value: formatPnlUsdc(m.totalPnlEth),
+      sub: useRemote
+        ? "all agents · Mongo · simulated · ETH→USDC @ ref"
+        : "all agents · simulated · ETH→USDC @ ref",
+      accent: m.totalPnlEth >= 0 ? "text-emerald-700" : "text-red-700",
     },
-    { label: "Actions", value: `${totalActions}`, sub: `${totalFills} fills · ${totalActions - totalFills} skips` },
-    { label: "Win rate", value: `${(winRate * 100).toFixed(0)}%`, sub: "fills / total" },
+    {
+      label: "Actions",
+      value: `${m.totalActions}`,
+      sub: `${m.totalFills} fills · ${m.totalSkips} skips`,
+    },
+    { label: "Win rate", value: `${(m.winRate * 100).toFixed(0)}%`, sub: "fills / total" },
   ]
 
   return (
@@ -31,7 +51,9 @@ export function OverviewMetrics({ agents }: Props) {
       {cards.map(c => (
         <div
           key={c.label}
-          className="rounded-2xl border border-black/[0.07] bg-white/95 px-4 py-3 shadow-[0_6px_24px_rgba(0,0,0,0.04)]"
+          className={`rounded-2xl border border-black/[0.07] bg-white/95 px-4 py-3 shadow-[0_6px_24px_rgba(0,0,0,0.04)] ${
+            overviewLoading && !useRemote ? "animate-pulse opacity-90" : ""
+          }`}
         >
           <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">{c.label}</p>
           <p

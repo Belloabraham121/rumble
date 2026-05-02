@@ -5,6 +5,7 @@ import { getUserByEmail, upsertUserByEmail } from "@/lib/db/users.repo"
 import { getMongoDb } from "@/lib/db/mongo-client"
 import { syncPrivyUserAfterLogin } from "@/lib/integrations/privy/bridge-user"
 
+/** First-time account: creates Mongo user, Privy user + embedded ETH wallet, session cookie. */
 export async function POST(req: Request) {
   let body: unknown
   try {
@@ -30,10 +31,10 @@ export async function POST(req: Request) {
   }
 
   const existing = await getUserByEmail(email)
-  if (!existing) {
+  if (existing) {
     return NextResponse.json(
-      { error: "No account for this email. Create one first." },
-      { status: 401 },
+      { error: "An account with this email already exists. Sign in instead." },
+      { status: 409 },
     )
   }
 
@@ -48,7 +49,12 @@ export async function POST(req: Request) {
   const user: SessionUser = { email }
   const token = encodeSession(user)
 
-  const res = NextResponse.json({ ok: true as const, user })
+  const res = NextResponse.json({
+    ok: true as const,
+    user,
+    /** Present once Privy finishes bridging — client can refresh `/api/auth/me`. */
+    walletProvisioning: true as const,
+  })
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

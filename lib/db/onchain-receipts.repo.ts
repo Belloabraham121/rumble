@@ -60,6 +60,24 @@ export async function upsertOnchainReceipt(input: UpsertOnchainReceiptInput): Pr
   )
 }
 
+export async function listOnchainReceiptsForUser(input: {
+  romboUserIdHex: string
+  limit?: number
+}): Promise<OnchainReceiptDoc[]> {
+  const db = await getMongoDb()
+  if (!db) return []
+
+  const lim = Math.min(Math.max(input.limit ?? 100, 1), 300)
+  const cur = db
+    .collection(COLLECTIONS.onchainReceipts)
+    .find({ romboUserIdHex: input.romboUserIdHex })
+    .sort({ updatedAt: -1 })
+    .limit(lim)
+
+  const rows = await cur.toArray()
+  return rows as OnchainReceiptDoc[]
+}
+
 export async function listOnchainReceiptsForAgent(input: {
   agentId: string
   /** When set (dashboard session user), restrict to receipts recorded for that Rombo user. */

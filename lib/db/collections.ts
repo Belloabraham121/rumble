@@ -1,5 +1,7 @@
 export const COLLECTIONS = {
   users: "users",
+  /** Agent definitions + runtime state per Rombo user (dashboard source of truth when synced). */
+  agents: "agents",
   agentWallets: "agent_wallets",
   /** Uniswap quote/swap/order audit rows + idempotency keys */
   tradingAttempts: "trading_attempts",

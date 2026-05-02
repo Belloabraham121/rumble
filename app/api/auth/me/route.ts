@@ -1,7 +1,17 @@
 import { NextResponse } from "next/server"
-import { getSession } from "@/lib/auth/session"
+import { getSessionProfile } from "@/lib/auth/session-profile"
 
 export async function GET() {
-  const user = await getSession()
-  return NextResponse.json({ user })
+  const profile = await getSessionProfile()
+  if (!profile) {
+    return NextResponse.json({ user: null })
+  }
+
+  return NextResponse.json({
+    user: {
+      email: profile.email,
+      romboUserIdHex: profile.romboUserIdHex,
+      embeddedWalletAddress: profile.embeddedWalletAddress,
+    },
+  })
 }

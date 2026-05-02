@@ -11,6 +11,18 @@ import type { Agent } from "@/lib/agents/agent-types"
 type TxRow = AgentActivityEvent & {
   agentId: string
   agentName: string
+  /** Simulator rows omit this; Mongo-backed receipts set `onchain`. */
+  source?: "synthetic" | "onchain"
+  chainStatus?: "success" | "reverted"
+}
+
+type ChainReceiptDto = {
+  chainId: number
+  txHash: string
+  updatedAt: string
+  agentId?: string
+  status?: "success" | "reverted"
+  gasUsed?: string
 }
 
 const KIND_LABELS: Record<ExecutionKind, string> = {
@@ -29,10 +41,36 @@ const TIME_OPTIONS = [
   { id: "30d" as const, label: "Last 30d" },
 ]
 
-function fallbackReason(ev: AgentActivityEvent): string {
+function fallbackReason(ev: TxRow): string {
+  if (ev.source === "onchain") {
+    return ev.reason ?? (ev.chainStatus === "reverted" ? "Reverted on-chain." : "Confirmed on-chain receipt.")
+  }
   if (ev.reason) return ev.reason
   if (ev.kind === "box_skipped") return "No fill: band cleared before route completion."
-  return "Legacy event — rationale inferred from execution type until backend receipts ship."
+  return "Simulator event — merge with on-chain receipts when you POST /api/indexer/receipt after broadcast."
+}
+
+function receiptToTxRow(r: ChainReceiptDto, agentNameById: Record<string, string>): TxRow {
+  const agentId = r.agentId ?? "unknown"
+  const agentName = agentNameById[agentId] ?? (agentId === "unknown" ? "Wallet" : agentId)
+  const tx = r.txHash.startsWith("0x") ? r.txHash : `0x${r.txHash}`
+  return {
+    id: `onchain-${r.chainId}-${tx}`,
+    at: new Date(r.updatedAt).getTime(),
+    kind: "swap",
+    title: "On-chain transaction",
+    detail: `${tx.slice(0, 10)}…${tx.slice(-8)} · chain ${r.chainId}`,
+    reason:
+      r.status === "reverted"
+        ? "Transaction reverted on-chain."
+        : "Settled on-chain — link explorer from tx hash when wired.",
+    agentId,
+    agentName,
+    source: "onchain",
+    chainStatus: r.status,
+    txShort: tx.slice(2, 12),
+    gasGwei: undefined,
+  }
 }
 
 function formatWhen(ts: number): string {
@@ -59,6 +97,8 @@ export function TransactionsView() {
   const searchParams = useSearchParams()
   const agentFromUrl = searchParams.get("agent")
 
+  const [chainReceipts, setChainReceipts] = useState<ChainReceiptDto[]>([])
+
   const [tabAgentId, setTabAgentId] = useState<string>("all")
   const [timePreset, setTimePreset] = useState<(typeof TIME_OPTIONS)[number]["id"]>("all")
   const [kindFilter, setKindFilter] = useState<ExecutionKind | "all">("all")
@@ -71,6 +111,29 @@ export function TransactionsView() {
       setTabAgentId(agentFromUrl)
     }
   }, [ready, agents, agentFromUrl])
+
+  useEffect(() => {
+    if (!ready) return
+    let cancelled = false
+    const agentParam = tabAgentId === "all" ? "all" : tabAgentId
+    ;(async () => {
+      const r = await fetch(
+        `/api/dashboard/transactions?agentId=${encodeURIComponent(agentParam)}&includeSynthetic=false&limit=150`,
+        { credentials: "same-origin" },
+      )
+      if (!r.ok || cancelled) return
+      const j = (await r.json()) as { receipts?: ChainReceiptDto[] }
+      setChainReceipts(Array.isArray(j.receipts) ? j.receipts : [])
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [ready, tabAgentId])
+
+  const agentNameById = useMemo(
+    () => Object.fromEntries(agents.map((a) => [a.id, a.config.name])),
+    [agents],
+  )
 
   const setTab = useCallback(
     (id: string) => {
@@ -92,13 +155,18 @@ export function TransactionsView() {
     const scope: Agent[] =
       tabAgentId === "all" ? agents : agents.filter((a) => a.id === tabAgentId)
 
-    let list: TxRow[] = scope.flatMap((a) =>
+    const syntheticRows: TxRow[] = scope.flatMap((a) =>
       a.activity.map((ev) => ({
         ...ev,
         agentId: a.id,
         agentName: a.config.name,
+        source: "synthetic" as const,
       })),
     )
+
+    const chainRows: TxRow[] = chainReceipts.map((r) => receiptToTxRow(r, agentNameById))
+
+    let list: TxRow[] = [...syntheticRows, ...chainRows]
 
     list = list
       .filter((r) => withinPreset(r.at, timePreset, now))
@@ -119,7 +187,7 @@ export function TransactionsView() {
 
     list.sort((a, b) => b.at - a.at)
     return list
-  }, [agents, tabAgentId, timePreset, kindFilter, outcome, search])
+  }, [agents, tabAgentId, timePreset, kindFilter, outcome, search, chainReceipts, agentNameById])
 
   if (!ready) {
     return (
@@ -138,8 +206,7 @@ export function TransactionsView() {
           Transactions
         </h1>
         <p className="text-[12px] text-black/45 max-w-xl leading-relaxed">
-          Simulated execution lines from your agents (same data as the arena chart). Filter by time, outcome, and type.
-          When onchain APIs ship, hashes will resolve to Base explorers.
+          Simulator activity merged with on-chain receipts from Mongo. Filter by time, outcome, and type.
         </p>
       </header>
 
@@ -246,7 +313,7 @@ export function TransactionsView() {
                 <div className="min-w-0 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-md bg-black/[0.06] px-2 py-0.5 font-pixel text-[8px] tracking-widest text-black/50 uppercase">
-                      {KIND_LABELS[r.kind]}
+                      {r.source === "onchain" ? "CHAIN" : KIND_LABELS[r.kind]}
                     </span>
                     {tabAgentId === "all" && (
                       <Link
@@ -289,12 +356,14 @@ export function TransactionsView() {
                     {r.txShort}
                   </span>
                 )}
-                <Link
-                  href={`/dashboard/agents/${r.agentId}`}
-                  className="text-[11px] text-black/40 hover:text-black underline-offset-2 hover:underline"
-                >
-                  Open agent workspace
-                </Link>
+                {r.agentId !== "unknown" && (
+                  <Link
+                    href={`/dashboard/agents/${r.agentId}`}
+                    className="text-[11px] text-black/40 hover:text-black underline-offset-2 hover:underline"
+                  >
+                    Open agent workspace
+                  </Link>
+                )}
               </div>
             </article>
           ))

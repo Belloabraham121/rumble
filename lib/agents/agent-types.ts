@@ -12,7 +12,7 @@ export type AgentStatus = "running" | "paused"
 export type RiskLevel = "conservative" | "balanced" | "aggressive"
 export type ReflectionDepth = "light" | "standard" | "deep"
 
-/** Full agent configuration — mirrors `agent.md` (UI-only; no backend yet). */
+/** Full agent configuration — mirrors `agent.md`; persisted via `/api/agents` when Mongo + session sync. */
 export type AgentConfig = {
   name: string
   goal: string

@@ -24,6 +24,7 @@ import {
   type AgentStatus,
   type AgentTotals,
 } from "@/lib/agents/agent-types"
+import { toast } from "sonner"
 
 const STORAGE_KEY = "rombo.agents.v1"
 const MAX_EVENTS_PER_AGENT = 120
@@ -104,11 +105,33 @@ function hydrateStoredAgent(raw: Record<string, unknown>): Agent {
   }
 }
 
+async function fetchSessionEmail(): Promise<string | null> {
+  try {
+    const r = await fetch("/api/auth/me", { credentials: "same-origin" })
+    if (!r.ok) return null
+    const j = (await r.json()) as { user?: { email?: string; embeddedWalletAddress?: string } | null }
+    const e = j.user?.email?.trim()
+    return e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null
+  } catch {
+    return null
+  }
+}
+
 export function AgentsStoreProvider({ children }: { children: ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [ready, setReady] = useState(false)
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null)
+  /** After first `/api/agents` hydration attempt (Mongo may be off). */
+  const [backendHydrated, setBackendHydrated] = useState(false)
+  const agentsRef = useRef<Agent[]>([])
+  agentsRef.current = agents
+
   /** Map<agentId, epochMs> of when that agent's chart last recorded a resolution. */
   const liveDriveAtRef = useRef<Map<string, number>>(new Map())
+
+  useEffect(() => {
+    void fetchSessionEmail().then(setSessionEmail)
+  }, [])
 
   useEffect(() => {
     try {
@@ -133,6 +156,61 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [agents, ready])
 
+  /** Load agents from Mongo when logged in, or seed the server from localStorage. */
+  useEffect(() => {
+    if (!ready || !sessionEmail) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await fetch("/api/agents", { credentials: "same-origin" })
+        if (cancelled || !r.ok) {
+          setBackendHydrated(true)
+          return
+        }
+        const j = (await r.json()) as { agents?: Agent[] }
+        const remote = Array.isArray(j.agents) ? j.agents : []
+        if (remote.length > 0) {
+          setAgents(remote)
+        } else {
+          const local = agentsRef.current
+          if (local.length > 0) {
+            await fetch("/api/agents/sync", {
+              method: "PUT",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ agents: local }),
+            })
+          }
+        }
+      } finally {
+        if (!cancelled) setBackendHydrated(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [ready, sessionEmail])
+
+  /** Debounced push — keeps Mongo aligned with arena simulator + config edits. */
+  useEffect(() => {
+    if (!ready || !sessionEmail || !backendHydrated || agents.length === 0) return
+    const t = window.setTimeout(() => {
+      void fetch("/api/agents/sync", {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agents }),
+      }).then(res => {
+        if (!res.ok && res.status !== 401 && res.status !== 503) {
+          toast.error("Could not save agents", {
+            description: "Check your connection or try signing in again.",
+          })
+        }
+      })
+    }, 2800)
+    return () => window.clearTimeout(t)
+  }, [agents, backendHydrated, ready, sessionEmail])
+
   const createAgent = useCallback<AgentsContextValue["createAgent"]>(input => {
     const id = newId()
     const next: Agent = {
@@ -155,7 +233,14 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
   const removeAgent = useCallback<AgentsContextValue["removeAgent"]>(id => {
     setAgents(prev => prev.filter(a => a.id !== id))
     liveDriveAtRef.current.delete(id)
-  }, [])
+    void (async () => {
+      if (!sessionEmail) return
+      await fetch(`/api/agents/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      })
+    })()
+  }, [sessionEmail])
 
   const updateConfig = useCallback<AgentsContextValue["updateConfig"]>((id, patch) => {
     setAgents(prev =>

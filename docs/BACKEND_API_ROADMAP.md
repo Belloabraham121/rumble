@@ -165,7 +165,9 @@ Persist indexed rows to **MongoDB** for API reads from the dashboard.
 |---------------------|--------------|
 | Multi-pool agent config (`tradeAllPools`, `enabledPoolIds`) | [partial] **`getArenaPoolOnChain`** + **`arenaPoolId`** on Trading routes — extend validation everywhere quotes/LP run |
 | Chart + arena resolutions | Optional: **`GET /api/data/pool-snapshot`** + oracle/subgraph-driven prices vs sim-only chart |
-| Activity / Transactions pages | [partial] Receipt store + list API — wire **`transactions-view`** to **`/api/indexer/receipts`** + merge with client activity when ready |
+| Activity / Transactions pages | **`agents`** Mongo + **`GET/PUT /api/agents`**, **`GET /api/dashboard/transactions`** — **`transactions-view`** merges simulator activity + on-chain receipts |
+| Agent CRUD & sync | **`POST /api/agents`**, **`GET /api/agents`**, **`PUT /api/agents/sync`**, **`DELETE /api/agents/[agentId]`** — dashboard **`AgentsStoreProvider`** hydrates when logged in + debounced sync |
+| KPI plates (Agents / PnL / Actions / Win rate) | **`GET /api/dashboard/overview`** — Mongo aggregates; **`OverviewMetrics`** prefers API when session + Mongo, falls back to client-derived from store if 503/401 |
 | Runtime price boxes | Trading/LP APIs + Privy sign — policy hints in **`getLpPolicyHints`** |
 | Leaderboard / PnL in USDC display | Pool TVL/fees from subgraph snapshot + receipts; USD oracle TBD |
 
