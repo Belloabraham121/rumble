@@ -22,6 +22,7 @@
 - Better TypeScript types for complex v4 hook interactions.
 - Easier testnet liquidity provisioning for demos (faucet + pool bootstrap guide).
 - WebSocket support for real-time price updates directly from the API (we used Subgraph as fallback).
+- **No first-class endpoint for chaining multiple actions in one signed transaction.** Every `/swap`, `/lp/create`, `/lp/increase`, `/lp/decrease` call returns one calldata blob and (often) demands one Permit2 signature. For an autonomous agent ticking 3+ pools per cycle, that fans out into N parallel API calls and N user moments. The Universal Router is fully capable of executing a multi-leg command stream — we'd love an API surface that exposes it.
 
 ## Bugs / Friction Encountered
 
@@ -30,6 +31,9 @@
 
 ## What We Wish Existed
 
+- **A `POST /v1/multi_action` endpoint** — accept an array like `[{ kind: "swap" | "lp_increase" | "lp_decrease", ...args }]` and return **one** Universal Router calldata + **one** batched `v4BatchPermitData` Permit2 signature, with **one** combined quote + slippage envelope. Today, an agent that wants to "swap to rebalance, then add concentrated liquidity in the same range" pays for two `/quote` round-trips, two approvals, and two on-chain txs even though the router could execute it as a single multicall. This single endpoint would simplify our `lib/agents/runtime/tick.ts` materially — drop a whole branch of fan-out + retry plumbing — and turn a per-tick prompt into a once-per-session signature.
+- **Batch `/lp/*` for multi-position rebalancing** — when an agent manages five concentrated ranges in one pool, rebalancing means five `/lp/decrease` + five `/lp/increase` calls. The v4 PositionManager natively supports batched modifications; surfacing that on the API would let strategies like "shift all five ranges 1% up" become a single signed action.
+- **Conditional execution intents** — basically the UniswapX intent model exposed for arbitrary commands: "execute this swap iff price ≤ X within Y blocks." Today our agents poll and race the clock; we'd happily hand the matching off to the API.
 - Built-in agent memory examples for DeFi (tracking IL, range performance).
 - One-click "Agent Wallet" abstraction (like smart sessions).
 - More pre-built hooks for common strategies (auto-rebalance, dynamic fees).
