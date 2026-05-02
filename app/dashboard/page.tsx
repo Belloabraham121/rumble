@@ -10,7 +10,7 @@ export default async function DashboardPage() {
 
   return (
     <SitePageShell>
-      <div className="fixed top-4 right-4 z-50">
+      <div className="fixed top-4 left-4 z-50">
         <Link
           href="/"
           className="font-pixel text-xs tracking-[0.25em] text-black/70 hover:text-black transition-colors px-3 py-2 rounded-xl border border-black/10 bg-[#F5F4F0]/85 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.06)]"
@@ -19,7 +19,7 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <main className="pt-20 pb-12 md:pb-16 px-4 sm:px-6 md:px-8 lg:px-10">
+      <main className="pt-20 pb-6 px-3 sm:px-4 md:px-5">
         <DashboardWorkspace />
       </main>
     </SitePageShell>

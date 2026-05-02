@@ -44,13 +44,15 @@ type Props = {
   onApplyBoxes?: (boxes: PriceBox[]) => void
   agentStatus: "idle" | "armed" | "running"
   onStatusChange: (s: "idle" | "armed" | "running") => void
+  betAmount: string
+  onBetAmountChange: (amount: string) => void
 }
 
 function fieldClass() {
   return "w-full bg-white border border-black/10 rounded-lg px-3 py-2 text-xs text-[#111] placeholder:text-black/25 focus:outline-none focus:border-black/25 transition-colors"
 }
 
-export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange }: Props) {
+export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange, betAmount, onBetAmountChange }: Props) {
   const [name, setName] = useState("arena-alpha")
   const [goal, setGoal] = useState("Maximize yield on ETH/USDC with tight ranges when volatility is low.")
   const [capital, setCapital] = useState("2.5")
@@ -114,6 +116,22 @@ export function AgentCapsulePanel({ onApplyBoxes, agentStatus, onStatusChange }:
       </div>
 
       <div className="space-y-3">
+        <div>
+          <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Bet amount</label>
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <input
+              className={fieldClass()}
+              type="number"
+              step="0.01"
+              min={0}
+              value={betAmount}
+              onChange={e => onBetAmountChange(e.target.value)}
+            />
+            <span className="inline-flex items-center px-2 rounded-lg bg-black/[0.04] text-[10px] text-black/40 border border-black/10">
+              ETH
+            </span>
+          </div>
+        </div>
         <div>
           <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Agent name</label>
           <input className={fieldClass()} value={name} onChange={e => setName(e.target.value)} placeholder="my-gladiator" />
