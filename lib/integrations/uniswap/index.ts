@@ -54,5 +54,11 @@ export {
 export {
   fetchV3PoolStatsByAddress,
   fetchV3PoolStatsByPair,
+  fetchV3PoolSpotByAddress,
+  fetchV3PoolSpotByPair,
+  fetchV3PoolCandles,
   type SubgraphPoolStats,
+  type SubgraphPoolSpot,
+  type SubgraphPoolCandle,
+  type SubgraphCandleGranularity,
 } from "./subgraph"

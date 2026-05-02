@@ -30,6 +30,8 @@ export type TradingAttemptDoc = {
   /** sha256 hex of swap calldata or hashed payload */
   calldataHash?: string
   payloadHash?: string
+  /** Chain the attempt was for (receipt poller + analytics). */
+  chainId?: number
   quoteExpiresAt?: Date
   broadcastNonce?: number
   txHash?: string
@@ -62,6 +64,36 @@ export type WalletChainNonceDoc = {
 }
 
 /** Track last broadcast nonce for reconciliation (optional `broadcastNonce` from client). */
+/**
+ * Recent successful attempts that broadcast a tx — receipt may still be pending.
+ * Used by the cron poller (join with `onchain_receipts` in application code).
+ */
+export async function listTradingAttemptsRecentWithTx(input: {
+  limit?: number
+  maxAgeMs?: number
+}): Promise<TradingAttemptDoc[]> {
+  const db = await getMongoDb()
+  if (!db) return []
+
+  const lim = Math.min(Math.max(input.limit ?? 80, 1), 300)
+  const maxAge = input.maxAgeMs ?? 7 * 24 * 60 * 60 * 1000
+  const since = new Date(Date.now() - maxAge)
+
+  const cur = db
+    .collection(COLLECTIONS.tradingAttempts)
+    .find({
+      status: "ok",
+      txHash: { $exists: true, $nin: [null, ""] },
+      chainId: { $exists: true },
+      createdAt: { $gte: since },
+    })
+    .sort({ createdAt: -1 })
+    .limit(lim)
+
+  const rows = await cur.toArray()
+  return rows as TradingAttemptDoc[]
+}
+
 export async function upsertWalletChainNonce(input: {
   walletAddress: string
   chainId: number

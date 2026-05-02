@@ -11,7 +11,6 @@ import { DashboardReplayControls } from "@/components/dashboard/dashboard-replay
 import { ExpandedModule } from "@/components/dashboard/expandable-module";
 import { MOCK_ARENA_AGENTS } from "@/components/dashboard/mock-arena";
 import { useAgent, useAgentsStore } from "@/lib/agents/agents-store";
-import type { ArenaResolutionPayload } from "@/components/dashboard/activity-types";
 import type { PriceBox } from "@/components/dashboard/types";
 import type { AgentConfig } from "@/lib/agents/agent-types";
 import {
@@ -19,6 +18,9 @@ import {
   getTradableArenaPools,
   type ArenaPoolId,
 } from "@/lib/agents/arena-pools";
+import { usePoolCandles } from "@/lib/data/use-pool-candles";
+import { usePoolLivePrice } from "@/lib/data/use-pool-live-price";
+import { usePoolsList } from "@/lib/data/use-pools-list";
 
 type Props = {
   agentId: string;
@@ -40,10 +42,19 @@ function formatArenaQuote(poolId: string, usd: number): string {
   })}`;
 }
 
+function formatUsdCompact(raw?: string): string {
+  if (!raw) return "—";
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return "—";
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
+  return `$${n.toFixed(0)}`;
+}
+
 export function DashboardWorkspace({ agentId }: Props) {
   const agent = useAgent(agentId);
-  const { updateConfig, updateBoxes, setStatus, recordResolution, ready } =
-    useAgentsStore();
+  const { updateConfig, updateBoxes, setStatus, ready } = useAgentsStore();
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [livePrice, setLivePrice] = useState(2306.94);
   const [committedChartPoolId, setCommittedChartPoolId] =
@@ -57,14 +68,6 @@ export function DashboardWorkspace({ agentId }: Props) {
 
   const [logExpanded, setLogExpanded] = useState(false);
   const [arenaExpanded, setArenaExpanded] = useState(false);
-
-  const handleArenaResolution = useCallback(
-    (p: ArenaResolutionPayload) => {
-      if (!agentId) return;
-      recordResolution(agentId, p);
-    },
-    [agentId, recordResolution],
-  );
 
   const handleConfigChange = useCallback(
     (patch: Partial<AgentConfig>) => {
@@ -197,6 +200,48 @@ export function DashboardWorkspace({ agentId }: Props) {
   const livePairTag =
     ARENA_POOL_BY_ID[livePoolId]?.livePairTag ?? "ETH / USDC";
 
+  const livePriceHook = usePoolLivePrice(livePoolId, { intervalMs: 6000 });
+  const candlesHook = usePoolCandles(committedChartPoolId, {
+    granularity: "minute",
+    limit: 120,
+  });
+  const overlayCandlesHook = usePoolCandles(overlayChartPoolId ?? null, {
+    granularity: "minute",
+    limit: 120,
+  });
+  const poolsListHook = usePoolsList(20_000);
+
+  const liveSeedCloses = useMemo(() => {
+    if (!candlesHook.ready || candlesHook.candles.length === 0) return undefined;
+    const vals = candlesHook.candles
+      .map((c) => Number(c.close))
+      .filter((n) => Number.isFinite(n));
+    return vals.length > 0 ? vals : undefined;
+  }, [candlesHook.ready, candlesHook.candles]);
+
+  const overlaySeedCloses = useMemo(() => {
+    if (!overlayCandlesHook.ready || overlayCandlesHook.candles.length === 0) return undefined;
+    const vals = overlayCandlesHook.candles
+      .map((c) => Number(c.close))
+      .filter((n) => Number.isFinite(n));
+    return vals.length > 0 ? vals : undefined;
+  }, [overlayCandlesHook.ready, overlayCandlesHook.candles]);
+
+  const livePriceDisplayed =
+    livePriceHook.price ?? (livePriceHook.unavailable ? livePrice : livePrice);
+  const liveSourceLabel = livePriceHook.unavailable
+    ? "sim"
+    : livePriceHook.stale
+      ? "stale"
+      : livePriceHook.ready
+        ? "subgraph"
+        : "…";
+
+  const livePoolListRow = useMemo(
+    () => poolsListHook.data?.pools.find((p) => p.arenaPoolId === livePoolId) ?? null,
+    [poolsListHook.data, livePoolId],
+  );
+
   if (!ready) {
     return (
       <div className="py-12 text-center text-[12px] text-black/40">
@@ -284,7 +329,12 @@ export function DashboardWorkspace({ agentId }: Props) {
                   onPriceUpdate={
                     overlayChartPoolId ? undefined : setLivePrice
                   }
-                  onArenaResolution={handleArenaResolution}
+                  liveUsdPrice={
+                    overlayChartPoolId ? null : livePriceHook.price
+                  }
+                  liveSeedUsdPrices={
+                    overlayChartPoolId ? undefined : liveSeedCloses
+                  }
                 />
               </div>
               {overlayChartPoolId && (
@@ -303,23 +353,58 @@ export function DashboardWorkspace({ agentId }: Props) {
                     betAmount={betAmount}
                     paused={agentStatus !== "running"}
                     onPriceUpdate={setLivePrice}
-                    onArenaResolution={handleArenaResolution}
+                    liveUsdPrice={livePriceHook.price}
+                    liveSeedUsdPrices={overlaySeedCloses}
                   />
                 </div>
               )}
             </div>
 
             <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-end gap-2 pt-4 pr-4 md:pt-5 md:pr-5">
-              <div className="pointer-events-auto rounded-2xl border border-black/10 bg-white/92 backdrop-blur-md px-4 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.08)] min-w-[200px]">
-                <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">
+              <div className="pointer-events-auto rounded-2xl border border-black/10 bg-white/92 backdrop-blur-md px-4 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.08)] min-w-[220px]">
+                <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase flex items-center gap-1.5">
+                  <span
+                    className={`inline-block h-1.5 w-1.5 rounded-full ${
+                      liveSourceLabel === "subgraph"
+                        ? "bg-emerald-500"
+                        : liveSourceLabel === "stale"
+                          ? "bg-amber-500"
+                          : "bg-black/25"
+                    }`}
+                  />
                   Live · {livePairTag}
                 </p>
                 <p
                   className="mt-0.5 text-2xl leading-none tabular-nums text-[#111]"
                   style={{ fontFamily: '"IBM Plex Sans", sans-serif' }}
                 >
-                  {formatArenaQuote(livePoolId, livePrice)}
+                  {formatArenaQuote(livePoolId, livePriceDisplayed)}
                 </p>
+                <p className="mt-1 text-[9px] text-black/35 uppercase tracking-widest">
+                  Source: {liveSourceLabel}
+                </p>
+                {livePoolListRow && (
+                  <div className="mt-2 grid grid-cols-3 gap-1 border-t border-black/[0.06] pt-1.5">
+                    <div>
+                      <p className="font-pixel text-[7px] tracking-[0.18em] text-black/30 uppercase">TVL</p>
+                      <p className="text-[10px] tabular-nums text-black/70">
+                        {formatUsdCompact(livePoolListRow.totalValueLockedUsd)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-pixel text-[7px] tracking-[0.18em] text-black/30 uppercase">24h Vol</p>
+                      <p className="text-[10px] tabular-nums text-black/70">
+                        {formatUsdCompact(livePoolListRow.volumeUsd24h)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-pixel text-[7px] tracking-[0.18em] text-black/30 uppercase">24h Fees</p>
+                      <p className="text-[10px] tabular-nums text-black/70">
+                        {formatUsdCompact(livePoolListRow.feesUsd24h)}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
               <label className="pointer-events-auto flex items-center gap-2 rounded-xl border border-black/10 bg-white/95 backdrop-blur-md px-3 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.06)]">
                 <span className="font-pixel text-[8px] tracking-[0.15em] text-black/40 uppercase whitespace-nowrap">

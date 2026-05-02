@@ -44,6 +44,14 @@ export async function listAgentsForUser(romboUserIdHex: string): Promise<AgentDo
   return rows as AgentDoc[]
 }
 
+/** Lookup by dashboard agent id (unique per deployment). */
+export async function findAgentByAgentId(agentId: string): Promise<AgentDoc | null> {
+  const db = await getMongoDb()
+  if (!db) return null
+  const doc = await db.collection(COLLECTIONS.agents).findOne({ agentId })
+  return doc as AgentDoc | null
+}
+
 export async function findAgentForUser(
   romboUserIdHex: string,
   agentId: string,
@@ -106,4 +114,13 @@ export async function upsertManyAgentsForUser(input: {
   for (const agent of input.agents) {
     await upsertAgentForUser({ romboUserIdHex: input.romboUserIdHex, agent })
   }
+}
+
+/** All agents marked running — used by cron ticks. */
+export async function listRunningAgents(): Promise<AgentDoc[]> {
+  const db = await getMongoDb()
+  if (!db) return []
+
+  const rows = await db.collection(COLLECTIONS.agents).find({ status: "running" }).toArray()
+  return rows as AgentDoc[]
 }

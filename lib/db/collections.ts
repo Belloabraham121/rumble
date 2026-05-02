@@ -11,8 +11,14 @@ export const COLLECTIONS = {
   lpPositions: "lp_positions",
   /** Cached Uniswap V3 pool stats from subgraph / data APIs (TVL, volume, fees). */
   indexedPoolSnapshots: "indexed_pool_snapshots",
+  /** Live pool spot prices (short-retention cache, TTL-swept). */
+  poolPrices: "pool_prices",
+  /** OHLC candles for arena pools (subgraph-sourced; short retention). */
+  poolCandles: "pool_candles",
   /** On-chain receipts linked to agents / Rombo users (Execution log → real tx). */
   onchainReceipts: "onchain_receipts",
   /** Idempotent record of inbound indexer webhook deliveries (debug / replay). */
   indexerWebhookDeliveries: "indexer_webhook_deliveries",
+  /** Server-side agent tick decisions + execution outcomes. */
+  agentRuns: "agent_runs",
 } as const

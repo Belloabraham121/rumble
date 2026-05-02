@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { ObjectId } from "mongodb"
+import { ObjectId } from "mongodb"
 import { COLLECTIONS } from "@/lib/db/collections"
 import { getMongoDb } from "@/lib/db/mongo-client"
 
@@ -62,4 +62,16 @@ export async function getUserByEmail(email: string): Promise<RomboUserDoc | null
   const db = await getMongoDb()
   if (!db) return null
   return db.collection<RomboUserDoc>(COLLECTIONS.users).findOne({ email: normalizeEmail(email) })
+}
+
+/** Lookup by Mongo `_id` hex string (24-char ObjectId). */
+export async function getUserByRomboUserIdHex(hex: string): Promise<RomboUserDoc | null> {
+  const db = await getMongoDb()
+  if (!db) return null
+  try {
+    const id = ObjectId.createFromHexString(hex.trim())
+    return db.collection<RomboUserDoc>(COLLECTIONS.users).findOne({ _id: id })
+  } catch {
+    return null
+  }
 }

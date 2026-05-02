@@ -36,6 +36,17 @@ const schema = z.object({
   UNISWAP_V3_SUBGRAPH_URL: z.string().url().optional(),
   /** Shared secret for `POST /api/indexer/webhook` (`x-rombo-webhook-secret`). */
   ROMBO_INDEXER_WEBHOOK_SECRET: z.string().optional(),
+  /** Shared secret gate for `/api/cron/*` (`x-rombo-cron-secret` or `?token=`). */
+  ROMBO_CRON_SECRET: z.string().optional(),
+  /** Hard cap on how long a cached pool price may serve clients (seconds). */
+  ROMBO_POOL_PRICE_TTL_SECONDS: z.coerce.number().int().positive().optional(),
+  /**
+   * JSON-RPC URL for `eth_getTransactionReceipt` (receipt poller). If unset, public
+   * defaults for Base / Base Sepolia are used (rate-limited; set your own in prod).
+   */
+  ROMBO_RPC_URL: z.string().url().optional(),
+  /** See `executeAgentSwaps` — omit or `true` to broadcast swaps; set `false` to quote-only ticks. */
+  ROMBO_AGENT_RUNTIME_EXECUTE_SWAPS: z.string().optional(),
   ROMBO_TARGET_NETWORK: z.enum(["testnet", "mainnet"]).default("testnet"),
   ROMBO_DEFAULT_CHAIN_ID: z.coerce.number().int().positive().optional(),
   ROMBO_AGENT_WALLET_MODEL: z.string().optional(),
@@ -71,8 +82,17 @@ export type RomboServerEnv = {
   uniswapV3SubgraphUrl?: string
   /** When set, secured indexer webhooks can be accepted. */
   indexerWebhookSecret?: string
+  /** When set, `/api/cron/*` requires `x-rombo-cron-secret` header. */
+  cronSecret?: string
+  /** TTL for cached live pool prices (seconds, default 60). */
+  poolPriceTtlSeconds: number
   hasSubgraph: boolean
   hasIndexerWebhook: boolean
+  hasCronSecret: boolean
+  /** Optional JSON-RPC URL override for receipt polling / verification. */
+  romboRpcUrl?: string
+  /** False disables Privy broadcast after Uniswap `/swap` build (quotes + runs still logged). */
+  executeAgentSwaps: boolean
 }
 
 function chainIdForTarget(network: "testnet" | "mainnet", explicit?: number): number {
@@ -84,7 +104,9 @@ function chainIdForTarget(network: "testnet" | "mainnet", explicit?: number): nu
 
 export function getRomboServerEnv(): RomboServerEnv {
   const parsed = schema.safeParse(process.env)
-  const data = parsed.success ? parsed.data : { ROMBO_TARGET_NETWORK: "testnet" as const }
+  const data = parsed.success
+    ? parsed.data
+    : { ROMBO_TARGET_NETWORK: "testnet" as const, ROMBO_AGENT_RUNTIME_EXECUTE_SWAPS: undefined as string | undefined, ROMBO_RPC_URL: undefined as string | undefined }
 
   const targetNetwork = data.ROMBO_TARGET_NETWORK ?? "testnet"
   const defaultChainId = chainIdForTarget(
@@ -107,7 +129,11 @@ export function getRomboServerEnv(): RomboServerEnv {
   const romboLpRebalancePolicy = data.ROMBO_LP_REBALANCE_POLICY?.trim()
   const uniswapV3SubgraphUrl = data.UNISWAP_V3_SUBGRAPH_URL?.trim()
   const indexerWebhookSecret = data.ROMBO_INDEXER_WEBHOOK_SECRET?.trim()
+  const cronSecret = data.ROMBO_CRON_SECRET?.trim()
+  const poolPriceTtlSeconds = data.ROMBO_POOL_PRICE_TTL_SECONDS ?? 60
   const uniswapUniversalRouterVersion = data.UNISWAP_UNIVERSAL_ROUTER_VERSION ?? "2.0"
+  const romboRpcUrl = data.ROMBO_RPC_URL?.trim()
+  const executeAgentSwaps = data.ROMBO_AGENT_RUNTIME_EXECUTE_SWAPS?.trim() !== "false"
 
   return {
     targetNetwork,
@@ -123,6 +149,8 @@ export function getRomboServerEnv(): RomboServerEnv {
     romboLpRebalancePolicy,
     uniswapV3SubgraphUrl,
     indexerWebhookSecret,
+    cronSecret,
+    poolPriceTtlSeconds,
     uniswapUniversalRouterVersion,
     hasMongo: Boolean(mongodbUri),
     hasPrivyApp: Boolean(privyAppId && privyAppSecret),
@@ -130,6 +158,9 @@ export function getRomboServerEnv(): RomboServerEnv {
     hasUniswap: Boolean(uniswapApiKey),
     hasSubgraph: Boolean(uniswapV3SubgraphUrl),
     hasIndexerWebhook: Boolean(indexerWebhookSecret),
+    hasCronSecret: Boolean(cronSecret),
+    romboRpcUrl,
+    executeAgentSwaps,
   }
 }
 

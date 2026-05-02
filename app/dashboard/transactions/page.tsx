@@ -1,13 +1,13 @@
-import { redirect } from "next/navigation"
-import { Suspense } from "react"
-import { getSessionProfile } from "@/lib/auth/session-profile"
-import { DashboardBrandBar } from "@/components/dashboard/dashboard-brand-bar"
-import { TransactionsView } from "@/components/dashboard/transactions-view"
-import { SitePageShell } from "@/components/layout/site-page-shell"
+import { redirect } from "next/navigation";
+import { Suspense } from "react";
+import { getSessionProfile } from "@/lib/auth/session-profile";
+import { DashboardBrandBar } from "@/components/dashboard/dashboard-brand-bar";
+import { TransactionsView } from "@/components/dashboard/transactions-view";
+import { SitePageShell } from "@/components/layout/site-page-shell";
 
 export default async function TransactionsPage() {
-  const profile = await getSessionProfile()
-  if (!profile) redirect("/auth?next=/dashboard/transactions")
+  const profile = await getSessionProfile();
+  if (!profile) redirect("/auth?next=/dashboard/transactions");
 
   return (
     <SitePageShell>

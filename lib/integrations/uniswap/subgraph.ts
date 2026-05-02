@@ -10,6 +10,37 @@ export type SubgraphPoolStats = {
   txCount?: string
 }
 
+export type SubgraphPoolSpot = {
+  poolAddress: string
+  feeTier: number
+  token0: { address: string; symbol?: string; decimals?: number }
+  token1: { address: string; symbol?: string; decimals?: number }
+  /** Price of token0 expressed in token1 (raw subgraph field). */
+  token0Price: string
+  /** Price of token1 expressed in token0 (raw subgraph field). */
+  token1Price: string
+  tick?: string
+  sqrtPriceX96?: string
+  token0PriceUsd?: string
+  token1PriceUsd?: string
+  totalValueLockedUsd?: string
+  volumeUsd24h?: string
+  feesUsd24h?: string
+}
+
+export type SubgraphCandleGranularity = "hour" | "minute"
+
+export type SubgraphPoolCandle = {
+  /** Unix seconds — start of the OHLC bucket. */
+  periodStartUnix: number
+  open: string
+  high: string
+  low: string
+  close: string
+  volumeUsd?: string
+  tvlUsd?: string
+}
+
 type GraphqlEnvelope<T> = {
   data?: T
   errors?: { message?: string }[]
@@ -116,4 +147,211 @@ export async function fetchV3PoolStatsByPair(input: {
   const pool = data.pools?.[0]
   if (!pool) return null
   return mapPoolEntity(pool as { id: string; totalValueLockedUSD?: string; volumeUSD?: string; feesUSD?: string; txCount?: string })
+}
+
+type SubgraphPoolSpotRaw = {
+  id: string
+  feeTier?: string
+  tick?: string
+  sqrtPrice?: string
+  token0Price?: string
+  token1Price?: string
+  totalValueLockedUSD?: string
+  volumeUSD?: string
+  feesUSD?: string
+  token0?: { id?: string; symbol?: string; decimals?: string; derivedETH?: string }
+  token1?: { id?: string; symbol?: string; decimals?: string; derivedETH?: string }
+  poolDayData?: {
+    volumeUSD?: string
+    feesUSD?: string
+  }[]
+}
+
+function parseDecimals(raw?: string): number | undefined {
+  if (!raw) return undefined
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : undefined
+}
+
+function safeMul(a?: string, b?: string): string | undefined {
+  if (!a || !b) return undefined
+  const an = Number(a)
+  const bn = Number(b)
+  if (!Number.isFinite(an) || !Number.isFinite(bn)) return undefined
+  const v = an * bn
+  if (!Number.isFinite(v)) return undefined
+  return String(v)
+}
+
+function mapPoolSpot(raw: SubgraphPoolSpotRaw, ethUsd?: string): SubgraphPoolSpot {
+  const token0 = {
+    address: raw.token0?.id ?? "",
+    symbol: raw.token0?.symbol,
+    decimals: parseDecimals(raw.token0?.decimals),
+  }
+  const token1 = {
+    address: raw.token1?.id ?? "",
+    symbol: raw.token1?.symbol,
+    decimals: parseDecimals(raw.token1?.decimals),
+  }
+
+  const token0DerivedEth = raw.token0?.derivedETH
+  const token1DerivedEth = raw.token1?.derivedETH
+
+  const token0PriceUsd = safeMul(token0DerivedEth, ethUsd)
+  const token1PriceUsd = safeMul(token1DerivedEth, ethUsd)
+
+  const day = raw.poolDayData?.[0]
+
+  return {
+    poolAddress: raw.id,
+    feeTier: Number(raw.feeTier ?? 0),
+    token0,
+    token1,
+    token0Price: raw.token0Price ?? "",
+    token1Price: raw.token1Price ?? "",
+    tick: raw.tick,
+    sqrtPriceX96: raw.sqrtPrice,
+    token0PriceUsd,
+    token1PriceUsd,
+    totalValueLockedUsd: raw.totalValueLockedUSD,
+    volumeUsd24h: day?.volumeUSD,
+    feesUsd24h: day?.feesUSD,
+  }
+}
+
+async function fetchEthUsdFromBundle(): Promise<string | undefined> {
+  try {
+    const data = await postSubgraph<{ bundle: { ethPriceUSD?: string } | null }>(
+      `query Bundle { bundle(id: "1") { ethPriceUSD } }`,
+      {},
+    )
+    return data.bundle?.ethPriceUSD
+  } catch {
+    return undefined
+  }
+}
+
+/** Spot price + live fundamentals for a pool address (subgraph `id` = lowercased pool). */
+export async function fetchV3PoolSpotByAddress(poolAddress: string): Promise<SubgraphPoolSpot | null> {
+  const id = poolAddress.trim().toLowerCase()
+  const query = `
+    query PoolSpot($id: ID!) {
+      pool(id: $id) {
+        id
+        feeTier
+        tick
+        sqrtPrice
+        token0Price
+        token1Price
+        totalValueLockedUSD
+        volumeUSD
+        feesUSD
+        token0 { id symbol decimals derivedETH }
+        token1 { id symbol decimals derivedETH }
+        poolDayData(first: 1, orderBy: date, orderDirection: desc) {
+          volumeUSD
+          feesUSD
+        }
+      }
+    }
+  `
+  const [data, ethUsd] = await Promise.all([
+    postSubgraph<{ pool: SubgraphPoolSpotRaw | null }>(query, { id }),
+    fetchEthUsdFromBundle(),
+  ])
+  if (!data.pool) return null
+  return mapPoolSpot(data.pool, ethUsd)
+}
+
+/** Spot + fundamentals by (token0, token1, feeTier). Returns first matching pool. */
+export async function fetchV3PoolSpotByPair(input: {
+  token0Address: string
+  token1Address: string
+  feeTier: number
+}): Promise<SubgraphPoolSpot | null> {
+  const token0 = input.token0Address.trim().toLowerCase()
+  const token1 = input.token1Address.trim().toLowerCase()
+  const feeTier = String(input.feeTier)
+
+  const query = `
+    query PoolSpotByPair($token0: String!, $token1: String!, $feeTier: BigInt!) {
+      pools(where: { token0: $token0, token1: $token1, feeTier: $feeTier }, first: 1) {
+        id
+        feeTier
+        tick
+        sqrtPrice
+        token0Price
+        token1Price
+        totalValueLockedUSD
+        volumeUSD
+        feesUSD
+        token0 { id symbol decimals derivedETH }
+        token1 { id symbol decimals derivedETH }
+        poolDayData(first: 1, orderBy: date, orderDirection: desc) {
+          volumeUSD
+          feesUSD
+        }
+      }
+    }
+  `
+
+  const [data, ethUsd] = await Promise.all([
+    postSubgraph<{ pools: SubgraphPoolSpotRaw[] }>(query, { token0, token1, feeTier }),
+    fetchEthUsdFromBundle(),
+  ])
+  const pool = data.pools?.[0]
+  if (!pool) return null
+  return mapPoolSpot(pool, ethUsd)
+}
+
+/** Fetch OHLC candles for a pool. */
+export async function fetchV3PoolCandles(input: {
+  poolAddress: string
+  granularity: SubgraphCandleGranularity
+  /** Max bars to return (cap 500). */
+  limit?: number
+}): Promise<SubgraphPoolCandle[]> {
+  const id = input.poolAddress.trim().toLowerCase()
+  const first = Math.min(Math.max(input.limit ?? 120, 1), 500)
+
+  const entity = input.granularity === "minute" ? "poolMinuteDatas" : "poolHourDatas"
+  const query = `
+    query PoolCandles($pool: String!, $first: Int!) {
+      ${entity}(where: { pool: $pool }, first: $first, orderBy: periodStartUnix, orderDirection: desc) {
+        periodStartUnix
+        open
+        high
+        low
+        close
+        volumeUSD
+        tvlUSD
+      }
+    }
+  `
+
+  const data = await postSubgraph<Record<string, {
+    periodStartUnix: string | number
+    open: string
+    high: string
+    low: string
+    close: string
+    volumeUSD?: string
+    tvlUSD?: string
+  }[]>>(query, { pool: id, first })
+
+  const rows = data[entity] ?? []
+  return rows
+    .map((r) => ({
+      periodStartUnix:
+        typeof r.periodStartUnix === "string" ? Number(r.periodStartUnix) : r.periodStartUnix,
+      open: r.open,
+      high: r.high,
+      low: r.low,
+      close: r.close,
+      volumeUsd: r.volumeUSD,
+      tvlUsd: r.tvlUSD,
+    }))
+    .filter((r) => Number.isFinite(r.periodStartUnix))
+    .sort((a, b) => a.periodStartUnix - b.periodStartUnix)
 }

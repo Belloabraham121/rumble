@@ -78,6 +78,21 @@ export async function listOnchainReceiptsForUser(input: {
   return rows as OnchainReceiptDoc[]
 }
 
+export async function findOnchainReceipt(input: {
+  chainId: number
+  txHash: string
+}): Promise<OnchainReceiptDoc | null> {
+  const db = await getMongoDb()
+  if (!db) return null
+
+  const h = normalizeTxHash(input.txHash)
+  const doc = await db.collection(COLLECTIONS.onchainReceipts).findOne({
+    chainId: input.chainId,
+    txHash: h,
+  })
+  return doc as OnchainReceiptDoc | null
+}
+
 export async function listOnchainReceiptsForAgent(input: {
   agentId: string
   /** When set (dashboard session user), restrict to receipts recorded for that Rombo user. */

@@ -15,6 +15,13 @@ type Props = {
   onPriceUpdate?: (usdPrice: number) => void
   /** Fires once per box when it resolves at the head (hit or miss). */
   onArenaResolution?: (payload: ArenaResolutionPayload) => void
+  /**
+   * Live USD price from `/api/data/pools/[id]/price`. When set, the chart drives the
+   * head + trail from this value instead of the internal sim (`agent.md` §chart).
+   */
+  liveUsdPrice?: number | null
+  /** Optional seed prices (most recent USD closes) used to prime the trail on pool change. */
+  liveSeedUsdPrices?: number[]
 }
 
 const W = 1600
@@ -86,6 +93,8 @@ export function AgentChartCanvas({
   poolId = "eth-usdc",
   onPriceUpdate,
   onArenaResolution,
+  liveUsdPrice = null,
+  liveSeedUsdPrices,
 }: Props) {
   const uid = useId().replace(/:/g, "")
   const lineGlowId = `${uid}-lineGlow`
@@ -133,8 +142,19 @@ export function AgentChartCanvas({
   const nextLatticeRef = useRef(GRID_COLS + 1)
   const idRef = useRef(1000)
 
-  const minP = 38
-  const maxP = 68
+  const liveMode = liveUsdPrice != null
+
+  const { minP, maxP } = useMemo(() => {
+    if (!liveMode) return { minP: 38, maxP: 68 }
+    const prices: number[] = history.map((h) => h.p)
+    if (liveUsdPrice != null) prices.push(liveUsdPrice)
+    if (prices.length === 0) return { minP: 38, maxP: 68 }
+    const lo = Math.min(...prices)
+    const hi = Math.max(...prices)
+    const span = Math.max(hi - lo, Math.abs(hi) * 0.005 || 1)
+    const pad = span * 0.25
+    return { minP: lo - pad, maxP: hi + pad }
+  }, [liveMode, history, liveUsdPrice])
 
   const headY = priceToY(currentP, minP, maxP)
   const activeRow = rowForPrice(currentP, minP, maxP)
@@ -143,6 +163,16 @@ export function AgentChartCanvas({
   const safeBet = Number.isFinite(parsedBet) && parsedBet > 0 ? parsedBet : 0
 
   const seenResolvedRef = useRef(new Set<string>())
+
+  /** Share latest values with the RAF loop without retriggering it on every tick. */
+  const liveUsdPriceRef = useRef<number | null>(liveUsdPrice)
+  const priceRangeRef = useRef({ minP, maxP })
+  useEffect(() => {
+    liveUsdPriceRef.current = liveUsdPrice
+  }, [liveUsdPrice])
+  useEffect(() => {
+    priceRangeRef.current = { minP, maxP }
+  }, [minP, maxP])
 
   /**
    * Trail: map the last history points linearly across the area to the LEFT
@@ -163,6 +193,15 @@ export function AgentChartCanvas({
       .join(" ")
   }, [history, minP, maxP, gl, headX, gridTop, cellH])
 
+  /** Seed history from real candles when provided. */
+  useEffect(() => {
+    if (!liveSeedUsdPrices || liveSeedUsdPrices.length === 0) return
+    const seeded = liveSeedUsdPrices.slice(-120).map((p, i) => ({ x: i, p }))
+    setHistory(seeded)
+    const last = seeded[seeded.length - 1]
+    if (last) setCurrentP(last.p)
+  }, [liveSeedUsdPrices])
+
   useEffect(() => {
     if (paused) {
       cancelAnimationFrame(rafRef.current)
@@ -171,17 +210,29 @@ export function AgentChartCanvas({
 
     const loop = () => {
       tRef.current += 1
-      const t = tRef.current * 0.02
-      const noise = (Math.random() - 0.5) * 0.5
-      const next =
-        poolSim.mid +
-        Math.sin(t + poolSim.phase) * poolSim.amp +
-        Math.cos(t * 0.73 + poolSim.phase * 0.5) * (poolSim.amp * 0.42) +
-        noise
-      const nextRow = rowForPrice(next, minP, maxP)
+      const live = liveUsdPriceRef.current
+      const { minP: liveMinP, maxP: liveMaxP } = priceRangeRef.current
+
+      let next: number
+      let reportedUsd: number
+      if (live != null) {
+        next = live
+        reportedUsd = live
+      } else {
+        const t = tRef.current * 0.02
+        const noise = (Math.random() - 0.5) * 0.5
+        next =
+          poolSim.mid +
+          Math.sin(t + poolSim.phase) * poolSim.amp +
+          Math.cos(t * 0.73 + poolSim.phase * 0.5) * (poolSim.amp * 0.42) +
+          noise
+        reportedUsd = poolSim.usdFromSim(next)
+      }
+
+      const nextRow = rowForPrice(next, liveMinP, liveMaxP)
 
       setCurrentP(next)
-      onPriceUpdate?.(poolSim.usdFromSim(next))
+      onPriceUpdate?.(reportedUsd)
       setHistory(h => {
         const lastX = h[h.length - 1]?.x ?? 0
         return [...h, { x: lastX + 1, p: next }].slice(-120)
@@ -249,7 +300,7 @@ export function AgentChartCanvas({
 
     rafRef.current = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(rafRef.current)
-  }, [paused, onPriceUpdate, safeBet, minP, maxP, poolSim])
+  }, [paused, onPriceUpdate, safeBet, poolSim])
 
   useEffect(() => {
     if (!hitFlash) return

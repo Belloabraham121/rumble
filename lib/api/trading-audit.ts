@@ -94,6 +94,7 @@ async function persistTradingAudit(input: {
     routing,
     calldataHash,
     payloadHash,
+    chainId: input.chainId,
     quoteExpiresAt,
     broadcastNonce: input.broadcastNonce,
     txHash: input.txHash,

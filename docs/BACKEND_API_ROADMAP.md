@@ -4,16 +4,16 @@ This document lists **UI-complete features that still need server/API implementa
 
 **References**
 
-| Area | Primary docs |
-|------|----------------|
-| Privy — agent experiences overview | [Agent integrations overview](https://docs.privy.io/recipes/agent-integrations/overview) |
-| Privy — agentic wallets (policies, authorization keys) | [Agentic wallets](https://docs.privy.io/recipes/wallets/agentic-wallets) |
+| Area                                                                | Primary docs                                                                                                                                                                         |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Privy — agent experiences overview                                  | [Agent integrations overview](https://docs.privy.io/recipes/agent-integrations/overview)                                                                                             |
+| Privy — agentic wallets (policies, authorization keys)              | [Agentic wallets](https://docs.privy.io/recipes/wallets/agentic-wallets)                                                                                                             |
 | Privy — server-side user wallets (session signer, app-initiated tx) | [Server-side user wallets](https://docs.privy.io/recipes/wallets/server-side-user-wallets), [User and server signers](https://docs.privy.io/recipes/wallets/user-and-server-signers) |
-| Uniswap — Trading API flow | [Swapping via the Uniswap API](https://developers.uniswap.org/docs/trading/swapping-api/getting-started), [API reference](https://developers.uniswap.org/docs/api-reference) |
-| Uniswap — Liquidity provisioning | [Liquidity provisioning API — getting started](https://developers.uniswap.org/docs/liquidity/liquidity-provisioning-api/getting-started) |
-| Uniswap — errors, rate limits, LP flows | **[Rombo reference](./UNISWAP_API_REFERENCE.md)** + **`lib/integrations/uniswap/`** (stable codes, throttle, `fetchUniswap`) |
-| Privy — dashboard + env | **[Privy setup](./PRIVY_SETUP.md)** + **`lib/integrations/privy/server-client.ts`** |
-| Uniswap — AI / agent tooling (optional accelerator) | Repo note: `npx skills add Uniswap/uniswap-ai`, plugins such as `uniswap-trading` / `uniswap-viem` — see [Uniswap Developers](https://developers.uniswap.org/) |
+| Uniswap — Trading API flow                                          | [Swapping via the Uniswap API](https://developers.uniswap.org/docs/trading/swapping-api/getting-started), [API reference](https://developers.uniswap.org/docs/api-reference)         |
+| Uniswap — Liquidity provisioning                                    | [Liquidity provisioning API — getting started](https://developers.uniswap.org/docs/liquidity/liquidity-provisioning-api/getting-started)                                             |
+| Uniswap — errors, rate limits, LP flows                             | **[Rombo reference](./UNISWAP_API_REFERENCE.md)** + **`lib/integrations/uniswap/`** (stable codes, throttle, `fetchUniswap`)                                                         |
+| Privy — dashboard + env                                             | **[Privy setup](./PRIVY_SETUP.md)** + **`lib/integrations/privy/server-client.ts`**                                                                                                  |
+| Uniswap — AI / agent tooling (optional accelerator)                 | Repo note: `npx skills add Uniswap/uniswap-ai`, plugins such as `uniswap-trading` / `uniswap-viem` — see [Uniswap Developers](https://developers.uniswap.org/)                       |
 
 > **Note:** Exact host paths (`trade-api.gateway.uniswap.org`, `liquidity.api.uniswap.org`, etc.) and query shapes change over time. Treat endpoint names below as **integration targets**; verify against the official API reference before implementation.
 
@@ -23,13 +23,13 @@ This document lists **UI-complete features that still need server/API implementa
 
 Decisions are **documented** in [`docs/ARCHITECTURE_DECISIONS.md`](./ARCHITECTURE_DECISIONS.md) and **encoded** under `lib/rombo/`:
 
-| Topic | Resolution |
-|-------|----------------|
-| **Auth** | Phase 1: **cookie session** (`getSession`) stays source of truth for `/dashboard`. Phase 2: bridge email users to Privy user ids when wiring wallets — see ADR. |
+| Topic            | Resolution                                                                                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Auth**         | Phase 1: **cookie session** (`getSession`) stays source of truth for `/dashboard`. Phase 2: bridge email users to Privy user ids when wiring wallets — see ADR.          |
 | **Wallet model** | Default **`agentic_per_agent`** (Privy Model 1). Override with `ROMBO_AGENT_WALLET_MODEL=user_scoped_signer` for Model 2–style signers. See `lib/rombo/wallet-model.ts`. |
-| **Chains** | Testnet-first: default chain id **84532** (Base Sepolia) via `ROMBO_TARGET_NETWORK=testnet`. Full slug ↔ id map in `lib/rombo/chain-config.ts`. |
-| **Secrets** | `.env.example` lists `MONGODB_URI`, `PRIVY_*`, `UNISWAP_API_KEY`. Runtime flags **without** exposing values: `getRomboServerEnv()` in `lib/rombo/server-env.ts`. |
-| **Database** | **MongoDB** for users, onchain tx rows, agent sync, Privy id mapping — see ADR §5. |
+| **Chains**       | Testnet-first: default chain id **84532** (Base Sepolia) via `ROMBO_TARGET_NETWORK=testnet`. Full slug ↔ id map in `lib/rombo/chain-config.ts`.                          |
+| **Secrets**      | `.env.example` lists `MONGODB_URI`, `PRIVY_*`, `UNISWAP_API_KEY`. Runtime flags **without** exposing values: `getRomboServerEnv()` in `lib/rombo/server-env.ts`.         |
+| **Database**     | **MongoDB** for users, onchain tx rows, agent sync, Privy id mapping — see ADR §5.                                                                                       |
 
 - [x] **Auth source of truth** — Documented bridge plan (session now, Privy user mapping next).
 - [x] **Wallet model** — Default Option A; env switch for Option B.
@@ -104,14 +104,14 @@ Use the official Privy docs for exact routes; typical areas include:
 
 Summarized from Uniswap’s official **Troubleshooting** doc — full tables and remediation live in **[`docs/UNISWAP_API_REFERENCE.md`](./UNISWAP_API_REFERENCE.md)**.
 
-| Topic | Summary |
-|-------|---------|
-| **Rate limit** | Default **6 RPS** per key → **429** if exceeded; pause traffic and retry with backoff; higher limits via Uniswap support / dashboard. |
-| **Headers** | **`Accept`** and **`Content-Type`** must be **`application/json`** only (strict validation). |
-| **401** | Invalid/missing **`x-api-key`** or bad headers. |
-| **400** | Validation — missing fields, malformed addresses, bad enums. |
-| **404** | Often “No quotes available” — min **UniswapX** notionals (e.g. **~1000 USDC eq on Base/L2**, **~300** on L1), wrong chain/token pairing, or illegal bridge+swap combo. |
-| **500 / 504** | Server/gateway — retry with backoff. |
+| Topic          | Summary                                                                                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Rate limit** | Default **6 RPS** per key → **429** if exceeded; pause traffic and retry with backoff; higher limits via Uniswap support / dashboard.                                  |
+| **Headers**    | **`Accept`** and **`Content-Type`** must be **`application/json`** only (strict validation).                                                                           |
+| **401**        | Invalid/missing **`x-api-key`** or bad headers.                                                                                                                        |
+| **400**        | Validation — missing fields, malformed addresses, bad enums.                                                                                                           |
+| **404**        | Often “No quotes available” — min **UniswapX** notionals (e.g. **~1000 USDC eq on Base/L2**, **~300** on L1), wrong chain/token pairing, or illegal bridge+swap combo. |
+| **500 / 504**  | Server/gateway — retry with backoff.                                                                                                                                   |
 
 **Rombo:** Same headers + **`fetchUniswap`** stack as Trading (`lib/integrations/uniswap/http.ts`); **429 / 5xx / 504** retried via **`withUniswapRetry`** (`retry.ts`). Liquidity shares the process rate limiter (~5 RPS under the platform **6 RPS** cap).
 
@@ -131,11 +131,11 @@ Endpoint names and hosts: always use the current [API reference](https://develop
 
 **Rombo implementation**
 
-| Piece | Location |
-|-------|----------|
-| LP HTTP client (`/lp/check_approval`, `/lp/create`, `/lp/increase`, …) | `lib/integrations/uniswap/liquidity.ts` |
-| Authenticated routes + audit (`trading_attempts` kinds `lp_*`) | `POST /api/liquidity/[action]` |
-| Optional Liquidity base URL override | `UNISWAP_LIQUIDITY_API_BASE` / `getRomboServerEnv().liquidityApiBase` |
+| Piece                                                                  | Location                                                              |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| LP HTTP client (`/lp/check_approval`, `/lp/create`, `/lp/increase`, …) | `lib/integrations/uniswap/liquidity.ts`                               |
+| Authenticated routes + audit (`trading_attempts` kinds `lp_*`)         | `POST /api/liquidity/[action]`                                        |
+| Optional Liquidity base URL override                                   | `UNISWAP_LIQUIDITY_API_BASE` / `getRomboServerEnv().liquidityApiBase` |
 
 ### 4.1 Liquidity API — errors & rate limits
 
@@ -161,15 +161,15 @@ Persist indexed rows to **MongoDB** for API reads from the dashboard.
 
 ## 6. Rombo product features → API backing
 
-| Feature (current UI) | Backend work |
-|---------------------|--------------|
-| Multi-pool agent config (`tradeAllPools`, `enabledPoolIds`) | [partial] **`getArenaPoolOnChain`** + **`arenaPoolId`** on Trading routes — extend validation everywhere quotes/LP run |
-| Chart + arena resolutions | Optional: **`GET /api/data/pool-snapshot`** + oracle/subgraph-driven prices vs sim-only chart |
-| Activity / Transactions pages | **`agents`** Mongo + **`GET/PUT /api/agents`**, **`GET /api/dashboard/transactions`** — **`transactions-view`** merges simulator activity + on-chain receipts |
-| Agent CRUD & sync | **`POST /api/agents`**, **`GET /api/agents`**, **`PUT /api/agents/sync`**, **`DELETE /api/agents/[agentId]`** — dashboard **`AgentsStoreProvider`** hydrates when logged in + debounced sync |
-| KPI plates (Agents / PnL / Actions / Win rate) | **`GET /api/dashboard/overview`** — Mongo aggregates; **`OverviewMetrics`** prefers API when session + Mongo, falls back to client-derived from store if 503/401 |
-| Runtime price boxes | Trading/LP APIs + Privy sign — policy hints in **`getLpPolicyHints`** |
-| Leaderboard / PnL in USDC display | Pool TVL/fees from subgraph snapshot + receipts; USD oracle TBD |
+| Feature (current UI)                                        | Backend work                                                                                                                                                                                 |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Multi-pool agent config (`tradeAllPools`, `enabledPoolIds`) | [partial] **`getArenaPoolOnChain`** + **`arenaPoolId`** on Trading routes — extend validation everywhere quotes/LP run                                                                       |
+| Chart + arena resolutions                                   | Optional: **`GET /api/data/pool-snapshot`** + oracle/subgraph-driven prices vs sim-only chart                                                                                                |
+| Activity / Transactions pages                               | **`agents`** Mongo + **`GET/PUT /api/agents`**, **`GET /api/dashboard/transactions`** — **`transactions-view`** merges simulator activity + on-chain receipts                                |
+| Agent CRUD & sync                                           | **`POST /api/agents`**, **`GET /api/agents`**, **`PUT /api/agents/sync`**, **`DELETE /api/agents/[agentId]`** — dashboard **`AgentsStoreProvider`** hydrates when logged in + debounced sync |
+| KPI plates (Agents / PnL / Actions / Win rate)              | **`GET /api/dashboard/overview`** — Mongo aggregates; **`OverviewMetrics`** prefers API when session + Mongo, falls back to client-derived from store if 503/401                             |
+| Runtime price boxes                                         | Trading/LP APIs + Privy sign — policy hints in **`getLpPolicyHints`**                                                                                                                        |
+| Leaderboard / PnL in USDC display                           | Pool TVL/fees from subgraph snapshot + receipts; USD oracle TBD                                                                                                                              |
 
 ---
 
@@ -202,4 +202,4 @@ These accelerate **agent development** (tool-calling, plugins) but **production*
 
 ---
 
-*Last updated: generated for Rombo dashboard roadmap. For Uniswap rate limits, HTTP errors, LP pool-creation flow, and operational checklists, see [`docs/UNISWAP_API_REFERENCE.md`](./UNISWAP_API_REFERENCE.md). Adjust endpoint URLs and field names against the latest Privy and Uniswap API references before implementation.*
+_Last updated: generated for Rombo dashboard roadmap. For Uniswap rate limits, HTTP errors, LP pool-creation flow, and operational checklists, see [`docs/UNISWAP_API_REFERENCE.md`](./UNISWAP_API_REFERENCE.md). Adjust endpoint URLs and field names against the latest Privy and Uniswap API references before implementation._
