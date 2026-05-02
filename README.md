@@ -13,7 +13,7 @@ The repo is a single Next.js 16 app: dashboard UI, agent runtime, Uniswap client
 ### Agents
 
 - Per-user, server-persisted agents with goals, risk levels, approved tokens, gas caps, slippage, bet sizing.
-- 60-second tick loop driven by Vercel Cron (`/api/cron/agents-tick`) in production and an in-dashboard hook (`use-agent-tick-while-running`) in dev.
+- Agent ticks in production: Vercel Cron calls `/api/cron/agents-tick` **once per day** (06:00 UTC) — Vercel **Hobby** only allows daily-or-slower crons. For frequent simulation while you browse, the dashboard uses `use-agent-tick-while-running` to POST `/api/agents/[id]/tick` on an interval.
 - Decisions come from a price-box evaluator (`lib/agents/runtime/evaluate-boxes.ts`); when `OPENAI_API_KEY` is set the LLM picks among the user's boxes via `lib/agents/runtime/llm-evaluate.ts` (rules fallback otherwise).
 - **Sim mode**: every action is paper money. Each tick mutates a per-user `user_sim_wallets` doc, writes synthetic `trading_attempts` + `onchain_receipts` rows, and rolls a stochastic outcome multiplier with risk-band-clamped P&L. Synthetic per-action P&L is hard-capped at ±$2 USD so the activity feed reads as steady drift. There is no on-chain execution from the agent runtime — the wallet snapshot is taken once from the Privy embedded balance and frozen.
 - **No-skip activity**: when the box evaluator (or the LLM) would otherwise return a `skip`, the runtime substitutes a small "scout" swap so the dashboard, P&L, gas, win-rate and arena rank keep moving.
@@ -53,7 +53,7 @@ The repo is a single Next.js 16 app: dashboard UI, agent runtime, Uniswap client
 | **Pricing fallback** | Chainlink ETH/USD feeds via `lib/onchain/chainlink-feeds.ts`; Uniswap v3 subgraph for arena pool snapshots. |
 | **LLM** | OpenAI Chat Completions (default `gpt-4o-mini`) — optional. |
 | **Indexer** | Inbound `/api/indexer/webhook` and per-tx receipt poller (`lib/indexer/poll-receipt.ts`). |
-| **Cron** | Vercel Cron (`vercel.json`): `agents-tick` (every minute), `arena-rebuild` (daily 18:00 UTC), `poll-pools` + `poll-receipts` (daily). |
+| **Cron** | Vercel Cron (`vercel.json`): all jobs run **at most once per day** on Hobby — `poll-pools` 00:00 UTC, `agents-tick` 06:00 UTC, `poll-receipts` 12:00 UTC, `arena-rebuild` 18:00 UTC. Upgrade to Pro for sub-daily schedules. |
 
 ---
 
@@ -169,7 +169,7 @@ That writes `contracts/out/MinimalToken.sol/MinimalToken.json` plus a slimmed JS
 
 ## How a tick works
 
-1. **Vercel Cron** (`/api/cron/agents-tick`) or the in-dashboard hook calls `runAgentTick(agentDoc)` (`lib/agents/runtime/tick.ts`).
+1. **Vercel Cron** (`/api/cron/agents-tick`, daily on Hobby) **or** the in-dashboard hook calls `runAgentTick(agentDoc)` (`lib/agents/runtime/tick.ts`).
 2. The runtime resolves the user's shared simulated wallet (`ensureUserSimWallet`) — first call snapshots the live Privy embedded ETH/USDC balance with a paper-money minimum.
 3. For each enabled arena pool:
    1. Resolve display USD via `lib/data/pool-prices.repo.ts` (or fall back to `getPoolChartSim(...).usdFromSim(mid)`).

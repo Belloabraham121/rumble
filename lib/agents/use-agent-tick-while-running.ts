@@ -4,8 +4,9 @@ import { useEffect, useRef } from "react"
 
 /**
  * While the dashboard is open and the agent status is **running**, periodically POST
- * `/api/agents/[agentId]/tick` with the user session. Vercel cron has minute-level
- * granularity — sub-minute frequency must come from this client driver.
+ * `/api/agents/[agentId]/tick` with the user session. On Vercel **Hobby**, project
+ * crons are limited to **at most once per day** — frequent ticks while browsing
+ * must come from this client driver (not `vercel.json`).
  *
  * Default `intervalMs` is 1s for the live-sim dashboard. The `busy` guard prevents
  * overlap if a tick takes longer than the interval (e.g. an LLM call), so increasing
