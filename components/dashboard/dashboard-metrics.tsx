@@ -1,5 +1,7 @@
 "use client"
 
+import { formatPnlUsdc } from "@/components/dashboard/pnl-usdc"
+
 type Props = {
   pnlEth: number
   gasGweiTotal: number
@@ -9,7 +11,7 @@ type Props = {
 
 export function DashboardMetrics({ pnlEth, gasGweiTotal, actions, winRate }: Props) {
   const cards = [
-    { label: "Est. PnL", value: `${pnlEth >= 0 ? "+" : ""}${pnlEth.toFixed(4)} ETH`, sub: "simulated" },
+    { label: "Est. PnL", value: formatPnlUsdc(pnlEth), sub: "simulated · USDC" },
     { label: "Gas (Σ)", value: `${Math.round(gasGweiTotal)} gwei`, sub: "cumulative" },
     { label: "Actions", value: `${actions}`, sub: "fills + skips" },
     { label: "Win rate", value: `${(winRate * 100).toFixed(0)}%`, sub: "hits / fills" },

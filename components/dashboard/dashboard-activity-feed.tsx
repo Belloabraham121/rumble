@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { AgentActivityEvent, ExecutionKind } from "@/components/dashboard/activity-types"
 import { ExpandButton } from "@/components/dashboard/expandable-module"
+import { formatPnlUsdc } from "@/components/dashboard/pnl-usdc"
 
 function kindLabel(kind: ExecutionKind): string {
   switch (kind) {
@@ -134,7 +135,9 @@ export function DashboardActivityFeed({ events, highlightId, onExpand, variant =
                   <p className={`${lg ? "text-[11px]" : "text-[10px]"} text-black/45 leading-snug mt-0.5`}>{ev.detail}</p>
                   <div className={`flex flex-wrap gap-x-3 gap-y-0.5 mt-1 ${lg ? "text-[10px]" : "text-[9px]"} text-black/35 tabular-nums`}>
                     <span>{new Date(ev.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
-                    {ev.pnlEth != null && <span className={ev.pnlEth >= 0 ? "text-emerald-700/90" : "text-red-700/80"}>Δ {ev.pnlEth >= 0 ? "+" : ""}{ev.pnlEth.toFixed(4)} ETH</span>}
+                    {ev.pnlEth != null && (
+                      <span className={ev.pnlEth >= 0 ? "text-emerald-700/90" : "text-red-700/80"}>Δ {formatPnlUsdc(ev.pnlEth)}</span>
+                    )}
                     {ev.gasGwei != null && <span>{ev.gasGwei} gwei</span>}
                     {ev.txShort && <span className="font-mono">{ev.txShort}</span>}
                   </div>

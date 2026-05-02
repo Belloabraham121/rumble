@@ -2,6 +2,7 @@
 
 import type { ArenaAgentRow } from "@/components/dashboard/activity-types"
 import { ExpandButton } from "@/components/dashboard/expandable-module"
+import { formatSignedUsdcIntegerFromEthPnl, pnlEthToUsdc } from "@/components/dashboard/pnl-usdc"
 
 type Props = {
   agents: ArenaAgentRow[]
@@ -30,7 +31,7 @@ export function DashboardArenaBoard({ agents, currentAgentName = "arena-alpha", 
               <th className="px-2 py-1.5 font-medium">Agent</th>
               {lg && <th className="px-2 py-1.5 font-medium hidden md:table-cell">Pool</th>}
               {lg && <th className="px-2 py-1.5 font-medium text-right hidden md:table-cell">Actions</th>}
-              <th className="px-2 py-1.5 font-medium text-right">PnL</th>
+              <th className="px-2 py-1.5 font-medium text-right">PnL (USDC)</th>
               <th className={`px-2 py-1.5 font-medium text-right ${lg ? "" : "hidden sm:table-cell"}`}>Win</th>
               {lg && <th className="px-2 py-1.5 font-medium text-right hidden md:table-cell">Score</th>}
             </tr>
@@ -51,7 +52,13 @@ export function DashboardArenaBoard({ agents, currentAgentName = "arena-alpha", 
                   </td>
                   {lg && <td className="px-2 py-1.5 text-black/55 hidden md:table-cell">{a.pool}</td>}
                   {lg && <td className="px-2 py-1.5 text-right tabular-nums text-black/60 hidden md:table-cell">{a.actions}</td>}
-                  <td className="px-2 py-1.5 text-right tabular-nums text-emerald-800/90">+{a.pnlEth.toFixed(2)}</td>
+                  <td
+                    className={`px-2 py-1.5 text-right tabular-nums ${
+                      pnlEthToUsdc(a.pnlEth) >= 0 ? "text-emerald-800/90" : "text-red-700/85"
+                    }`}
+                  >
+                    {formatSignedUsdcIntegerFromEthPnl(a.pnlEth)}
+                  </td>
                   <td className={`px-2 py-1.5 text-right tabular-nums text-black/45 ${lg ? "" : "hidden sm:table-cell"}`}>
                     {(a.winRate * 100).toFixed(0)}%
                   </td>

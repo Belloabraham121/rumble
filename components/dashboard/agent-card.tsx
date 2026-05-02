@@ -1,6 +1,9 @@
 "use client"
 
 import Link from "next/link"
+import { useState } from "react"
+import { DeleteAgentModal } from "@/components/dashboard/delete-agent-modal"
+import { formatPnlUsdc } from "@/components/dashboard/pnl-usdc"
 import type { Agent, AgentStatus } from "@/lib/agents/agent-types"
 
 function statusDot(status: AgentStatus): string {
@@ -28,12 +31,14 @@ type Props = {
 }
 
 export function AgentCard({ agent, onPauseToggle, onRemove }: Props) {
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const lastEvent = agent.activity[agent.activity.length - 1]
   const actions = agent.totals.fills + agent.totals.skips
   const winRate = actions > 0 ? agent.totals.fills / actions : 0
   const pnl = agent.totals.pnlEth
 
   return (
+    <>
     <div className="relative rounded-2xl border border-black/[0.08] bg-white/92 p-4 shadow-[0_12px_36px_rgba(0,0,0,0.06)] flex flex-col gap-3 hover:shadow-[0_18px_48px_rgba(0,0,0,0.08)] transition-shadow">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -64,7 +69,7 @@ export function AgentCard({ agent, onPauseToggle, onRemove }: Props) {
             className={`text-sm tabular-nums font-medium ${pnl >= 0 ? "text-emerald-700" : "text-red-700"}`}
             style={{ fontFamily: '"IBM Plex Sans", sans-serif' }}
           >
-            {pnl >= 0 ? "+" : ""}{pnl.toFixed(4)} ETH
+            {formatPnlUsdc(pnl)}
           </p>
         </div>
         <div className="rounded-lg border border-black/[0.06] bg-[#fafaf8]/90 px-2.5 py-2">
@@ -95,9 +100,7 @@ export function AgentCard({ agent, onPauseToggle, onRemove }: Props) {
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (window.confirm(`Delete "${agent.config.name}"? Its history will be removed.`)) onRemove(agent.id)
-            }}
+            onClick={() => setDeleteOpen(true)}
             className="px-2 py-1 rounded-md border border-black/10 text-black/40 hover:text-red-700 hover:border-red-300 transition-colors"
           >
             Delete
@@ -105,5 +108,13 @@ export function AgentCard({ agent, onPauseToggle, onRemove }: Props) {
         </div>
       </div>
     </div>
+
+    <DeleteAgentModal
+      open={deleteOpen}
+      onClose={() => setDeleteOpen(false)}
+      agent={agent}
+      onConfirmDelete={id => onRemove(id)}
+    />
+    </>
   )
 }

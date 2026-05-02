@@ -1,5 +1,6 @@
 "use client"
 
+import { formatPnlUsdc } from "@/components/dashboard/pnl-usdc"
 import type { Agent } from "@/lib/agents/agent-types"
 
 type Props = {
@@ -17,8 +18,8 @@ export function OverviewMetrics({ agents }: Props) {
     { label: "Agents", value: `${agents.length}`, sub: `${running} running` },
     {
       label: "Total PnL",
-      value: `${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(4)} ETH`,
-      sub: "all agents · simulated",
+      value: formatPnlUsdc(totalPnl),
+      sub: "all agents · simulated · ETH→USDC @ ref",
       accent: totalPnl >= 0 ? "text-emerald-700" : "text-red-700",
     },
     { label: "Actions", value: `${totalActions}`, sub: `${totalFills} fills · ${totalActions - totalFills} skips` },
