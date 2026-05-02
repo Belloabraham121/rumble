@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useRef, useEffect, useState, useCallback } from "react"
+import Link from "next/link"
 import { IntroAnimation, INTRO_DURATION_MS, HERO_REVEAL_MS } from "@/components/intro-animation"
 import { AgentInterface } from "@/components/agent-interface"
 import { PixelIcon } from "@/components/pixel-icon"
@@ -8,7 +9,6 @@ import { LiveAgentFeed, LiveAgentCounter } from "@/components/live-agent-feed"
 import { RevealText } from "@/components/reveal-text"
 import { StackingAgentCards } from "@/components/stacking-agent-cards"
 import { MobileNav } from "@/components/mobile-nav"
-import { DevExSection } from "@/components/devex-section"
 
 // ─── Intersection Observer hook ──────────────────────────────────────────────
 function useInView(threshold = 0.15) {
@@ -78,7 +78,6 @@ function Tag({ children }: { children: React.ReactNode }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function AgenticPage() {
   const [email, setEmail] = useState("")
-  const [submitted, setSubmitted] = useState(false)
   const [heroReady, setHeroReady] = useState(false)
   const [videoReady, setVideoReady] = useState(false)
   const handleIntroDone = useCallback(() => {
@@ -318,95 +317,12 @@ export default function AgenticPage() {
         </div>
       </section>
 
-      {/* ── SECURITY & OBSERVABILITY ──────────────────────────────────��──── */}
-      <section id="security" className="py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06]">
-        <div className="max-w-6xl mx-auto">
-          <div className="mb-16">
-            <PixelIcon type="platform" size={40} />
-            <div className="mt-4"><Tag>SECURITY</Tag></div>
-            <RevealText className="mt-5 text-4xl md:text-5xl font-light tracking-tight leading-[1.05]">
-              {"Enterprise-grade\nsecurity from day one."}
-            </RevealText>
-          </div>
-
-          {/* Asymmetric grid: left text + title, right interactive audit log */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Left side — descriptions */}
-            <div className="space-y-6">
-              <p className="text-sm text-black/45 leading-relaxed">
-                Every trade is logged onchain. Built for teams that need compliance without compromise.
-              </p>
-
-              <div className="space-y-4">
-                {[
-                  { label: "SOC 2 Type II", desc: "Full Audit Trail (onchain + offchain)" },
-                  { label: "Real-time Observability & Replay", desc: "Monitor every trade and decision in real-time" },
-                  { label: "GDPR / Wallet-level permissions", desc: "Fine-grained access control per user and resource" },
-                ].map((item) => (
-                  <div key={item.label} className="flex gap-4">
-                    <div className="w-1 bg-black/10 rounded-full shrink-0" />
-                    <div>
-                      <h3 className="text-sm font-light mb-1">{item.label}</h3>
-                      <p className="text-xs text-black/35">{item.desc}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Compliance badges — vertical stack */}
-              <div className="pt-4 flex flex-col gap-2">
-                {["SOC 2 Type II", "Full Audit Trail (onchain + offchain)", "Real-time Observability & Replay", "GDPR / Wallet-level permissions"].map((badge) => (
-                  <div key={badge} className="flex items-center gap-2 text-xs text-black/25">
-                    <span className="w-1 h-1 rounded-full bg-black/25" />
-                    {badge}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Right side — live audit log visualization */}
-            <BentoCard className="p-6 lg:row-span-1" delay={0}>
-              <div className="text-xs text-black/30 tracking-widest uppercase mb-4">Live Audit Trail</div>
-              <div className="space-y-2">
-                {[
-                  { time: "12:34:21", action: "agent_executed", status: "success" },
-                  { time: "12:34:18", action: "box_hit → liquidity added", status: "success" },
-                  { time: "12:34:15", action: "swap_executed", status: "success" },
-                  { time: "12:34:12", action: "memory_updated", status: "success" },
-                ].map((log, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-black/[0.02] hover:bg-black/[0.04] transition-colors border border-black/[0.04] group cursor-pointer"
-                    style={{
-                      animation: `fadeInUp 0.5s cubic-bezier(0.16,1,0.3,1) ${i * 80}ms both`,
-                    }}
-                  >
-                    <span className="text-[10px] text-black/25 font-mono min-w-[60px]">{log.time}</span>
-                    <span className="text-[11px] text-black/50 font-light flex-1">{log.action}</span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500/60 group-hover:bg-green-500 transition-colors" />
-                  </div>
-                ))}
-              </div>
-              <style>{`
-                @keyframes fadeInUp {
-                  from { opacity: 0; transform: translateY(8px); }
-                  to { opacity: 1; transform: translateY(0); }
-                }
-              `}</style>
-            </BentoCard>
-          </div>
-        </div>
-      </section>
-
-      {/* ── DEVELOPER EXPERIENCE ──────────────────────────────────────────── */}
-      <DevExSection />
-
       {/* ── MARQUEE CAPABILITIES ──────────────────────────────────────────── */}
       <section className="py-0 border-t border-black/[0.06] overflow-hidden select-none">
         <div className="flex border-b border-black/[0.06]" style={{ animation: "marqueeLeft 28s linear infinite" }}>
             {[...Array(3)].map((_, rep) => (
             <div key={rep} className="flex shrink-0">
-              {["Market Research", "Strategy Coding", "Liquidity Analysis", "Swap Execution", "Rebalancing", "Risk Management", "Pool Monitoring", "Gas Optimization", "Yield Farming", "Impermanent Loss Tracking"].map((cap) => (
+              {["Market Research", "Route optimization", "Liquidity analysis", "Swap execution", "Rebalancing", "Risk management", "Pool monitoring", "Gas optimization", "Yield farming", "Impermanent loss tracking"].map((cap) => (
                 <div key={cap} className="flex items-center gap-6 px-10 py-5 border-r border-black/[0.06] shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-black/20 shrink-0" />
                   <span className="text-sm text-black/45 whitespace-nowrap tracking-wide">{cap}</span>
@@ -418,7 +334,7 @@ export default function AgenticPage() {
         <div className="flex" style={{ animation: "marqueeRight 22s linear infinite" }}>
           {[...Array(3)].map((_, rep) => (
             <div key={rep} className="flex shrink-0">
-              {["Box Triggers", "Uniswap v4 Hooks", "Price Alerts", "Portfolio Rebalancing", "Liquidity Positioning", "Multi-chain Routing", "Historical Analysis", "PnL Reporting", "Chain Integration", "Oracle Integration"].map((cap) => (
+              {["Box triggers", "Uniswap v4 hooks", "Price alerts", "Portfolio rebalancing", "Liquidity positioning", "Multi-chain routing", "Range & tick history", "PnL reporting", "Chain integration", "Oracle integration"].map((cap) => (
                 <div key={cap} className="flex items-center gap-6 px-10 py-5 border-r border-black/[0.06] shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-black/12 shrink-0" />
                   <span className="text-sm text-black/30 whitespace-nowrap tracking-wide">{cap}</span>
@@ -488,32 +404,25 @@ export default function AgenticPage() {
           <p className="text-sm text-black/45 leading-relaxed mb-10">
             Join thousands of builders deploying autonomous agents that trade, provide liquidity, and win on Uniswap around the clock.
           </p>
-          {!submitted ? (
-            <form
-              onSubmit={e => { e.preventDefault(); if (email) setSubmitted(true) }}
-              className="flex flex-col sm:flex-row gap-2 max-w-md mx-auto"
+          <div className="flex flex-col sm:flex-row gap-2 max-w-md mx-auto">
+            <input
+              type="email"
+              placeholder="your@email.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="flex-1 bg-white border border-black/10 rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-black/25 focus:outline-none focus:border-black/25 transition-colors"
+            />
+            <Link
+              href={
+                email.trim()
+                  ? `/auth?email=${encodeURIComponent(email.trim())}&next=/dashboard`
+                  : "/auth"
+              }
+              className="inline-flex items-center justify-center px-8 py-3 bg-[#111] text-white text-sm rounded-xl hover:bg-[#333] transition-colors tracking-widest font-medium shrink-0"
             >
-              <input
-                type="email"
-                placeholder="your@email.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                className="flex-1 bg-white border border-black/10 rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-black/25 focus:outline-none focus:border-black/25 transition-colors"
-              />
-              <button
-                type="submit"
-                className="px-8 py-3 bg-[#111] text-white text-sm rounded-xl hover:bg-[#333] transition-colors tracking-widest font-medium"
-              >
-                JOIN
-              </button>
-            </form>
-          ) : (
-            <div className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-emerald-600/20 bg-emerald-50 text-emerald-700 text-sm">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              {"You're on the list. We'll be in touch."}
-            </div>
-          )}
+              JOIN
+            </Link>
+          </div>
         </div>
       </section>
 

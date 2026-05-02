@@ -1,49 +1,49 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
-import { GitPullRequest, GitMerge, MessageSquare, CheckCircle2, Clock, AlertCircle, Zap, GitCommit, Eye, Terminal } from "lucide-react"
+import { GitPullRequest, GitMerge, MessageSquare, CheckCircle2, Clock, AlertCircle, Zap, GitCommit, Terminal, Activity } from "lucide-react"
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 
 const ALL_PRS = [
-  { id: 145, title: "feat: multi-agent orchestration v2",      agent: "orchestrator",    status: "review",  comments: 2,  additions: 57,  deletions: 4,  branch: "feat/orchestration-v2", time: "Just now" },
-  { id: 144, title: "fix: memory context window overflow",     agent: "analyst-agent",   status: "review",  comments: 1,  additions: 18,  deletions: 3,  branch: "fix/ctx-overflow",      time: "1m ago" },
-  { id: 143, title: "feat: streaming tool response",           agent: "monitor-agent",   status: "merged",  comments: 4,  additions: 93,  deletions: 11, branch: "feat/stream-tools",     time: "1m ago" },
-  { id: 142, title: "feat: add memory context to executor",    agent: "executor-agent",  status: "merged",  comments: 3,  additions: 84,  deletions: 12, branch: "feat/memory-ctx",       time: "2m ago" },
-  { id: 141, title: "fix: rate limit backoff strategy",        agent: "monitor-agent",   status: "approved",comments: 1,  additions: 31,  deletions: 8,  branch: "fix/rate-backoff",      time: "8m ago" },
-  { id: 140, title: "feat: parallel tool execution",           agent: "researcher-agent",status: "review",  comments: 5,  additions: 142, deletions: 27, branch: "feat/parallel-tools",   time: "22m ago" },
-  { id: 139, title: "refactor: orchestrator pipeline",         agent: "analyst-agent",   status: "merged",  comments: 7,  additions: 209, deletions: 88, branch: "refactor/pipeline",     time: "1h ago" },
+  { id: 145, title: "rebalance: narrow ETH/USDC 0.05% range",   agent: "strategist-agent",  status: "review",  comments: 2,  additions: 57,  deletions: 4,  branch: "pool/eth-usdc",       time: "Just now" },
+  { id: 144, title: "fix: box trigger fired below min notional", agent: "monitor-agent",     status: "review",  comments: 1,  additions: 18,  deletions: 3,  branch: "fix/box-min",         time: "1m ago" },
+  { id: 143, title: "feat: stream quotes from Trading API",      agent: "researcher-agent",  status: "merged",  comments: 4,  additions: 93,  deletions: 11, branch: "feat/stream-quotes",  time: "1m ago" },
+  { id: 142, title: "feat: persist tick memory after rebalance", agent: "executor-agent",    status: "merged",  comments: 3,  additions: 84,  deletions: 12, branch: "feat/memory-tick",    time: "2m ago" },
+  { id: 141, title: "fix: backoff when RPC rate limited",        agent: "monitor-agent",     status: "approved",comments: 1,  additions: 31,  deletions: 8,  branch: "fix/rpc-backoff",     time: "8m ago" },
+  { id: 140, title: "feat: multi-hop route via WBTC buffer",     agent: "researcher-agent",  status: "review",  comments: 5,  additions: 142, deletions: 27, branch: "feat/route-wbtc",     time: "22m ago" },
+  { id: 139, title: "refactor: plugin load order for uniswap-viem", agent: "builder-agent",  status: "merged",  comments: 7,  additions: 209, deletions: 88, branch: "refactor/plugins",    time: "1h ago" },
 ]
 
-const ALL_REVIEW_FILES = [
-  { file: "agent/executor.ts",    pct: 72 },
-  { file: "lib/tools/index.ts",   pct: 45 },
-  { file: "core/planner.ts",      pct: 88 },
-  { file: "utils/retry.ts",       pct: 31 },
-  { file: "agent/memory.ts",      pct: 60 },
+const ROUTE_STEPS = [
+  { file: "pool/eth-usdc-0.05%",     pct: 72 },
+  { file: "plugins/uniswap-trading", pct: 45 },
+  { file: "agent/box-triggers",      pct: 88 },
+  { file: "utils/guardrails",        pct: 31 },
+  { file: "memory/episodic",         pct: 60 },
 ]
 
-const ALL_REVIEW_LINES: { type: "comment"|"approve"|"change"|"code"; text: string; author?: string }[] = [
-  { type: "code",    text: 'const ctx = await memory.load(task.id)' },
-  { type: "comment", text: "Should we cache this per agent run?", author: "analyst-agent" },
-  { type: "code",    text: 'return researcher.execute(task, ctx)' },
-  { type: "approve", text: "LGTM — memory scope looks correct", author: "monitor-agent" },
-  { type: "code",    text: 'export const run = async (task) => {' },
-  { type: "change",  text: "Consider adding retry logic here", author: "executor-agent" },
-  { type: "code",    text: '  const plan = await planner.run(goal)' },
-  { type: "approve", text: "Approved — ship it", author: "orchestrator" },
-  { type: "code",    text: '  await ctx.memory.save(result)' },
-  { type: "comment", text: "Add error boundary here", author: "monitor-agent" },
-  { type: "code",    text: 'return { status: "done", result }' },
-  { type: "approve", text: "All checks pass", author: "analyst-agent" },
+const TRACE_LOG: { type: "comment"|"approve"|"change"|"code"; text: string; author?: string }[] = [
+  { type: "code",    text: 'const q = await trading.quote({ tokenIn: WETH, tokenOut: USDC })' },
+  { type: "comment", text: "Slippage inside max (0.5%)", author: "monitor-agent" },
+  { type: "code",    text: 'await universalRouter.execute(calldata, { gasLimit })' },
+  { type: "approve", text: "Simulation ok — est. gas 142k", author: "executor-agent" },
+  { type: "code",    text: 'export const onBoxHit = async (range) => {' },
+  { type: "change",  text: "Widen lower tick — price grazing edge", author: "strategist-agent" },
+  { type: "code",    text: '  await v3Pos.increaseLiquidity(params)' },
+  { type: "approve", text: "LP delta matches plan", author: "monitor-agent" },
+  { type: "code",    text: '  await memory.append({ tick, pool })' },
+  { type: "comment", text: "Partial fill acceptable under guardrails", author: "executor-agent" },
+  { type: "code",    text: 'return { status: "settled", txHash }' },
+  { type: "approve", text: "Indexed & logged", author: "monitor-agent" },
 ]
 
 const COMMITS = [
-  { hash: "a3f8c21", msg: "fix: memory leak in long-running agents",    time: "Just now" },
-  { hash: "b7d2e09", msg: "feat: streaming response for analyst",        time: "4m ago"   },
-  { hash: "c9a1f34", msg: "chore: bump @rumble/sdk to 2.4.1",          time: "12m ago"  },
-  { hash: "d4e6b78", msg: "perf: reduce token overhead by 18%",          time: "31m ago"  },
-  { hash: "e2c9d56", msg: "feat: add guardrails to executor-agent",      time: "1h ago"   },
+  { hash: "0xa3f8c2", msg: "settled: swap ETH → USDC on Base",              time: "Just now" },
+  { hash: "0xb7d2e0", msg: "addLiquidity: ETH/USDC 0.05% [ticklower..upper]", time: "4m ago" },
+  { hash: "0xc9a1f3", msg: "chore: bump uniswap-trading plugin",           time: "12m ago" },
+  { hash: "0xd4e6b7", msg: "perf: coalesce quote polls (−18% RPC)",        time: "31m ago" },
+  { hash: "0xe2c9d5", msg: "feat: stricter max gas on executor",           time: "1h ago" },
 ]
 
 // Activity graph data — 7 cols x 5 rows like GitHub contributions
@@ -249,7 +249,7 @@ function StatusBadge({ status }: { status: string }) {
   const cfg = {
     merged:   { bg: "rgba(130,80,255,0.1)",  color: "#8250df", icon: <GitMerge style={{ width: 9, height: 9 }} />,  label: "Merged"   },
     approved: { bg: "rgba(40,167,69,0.1)",   color: "#28a745", icon: <CheckCircle2 style={{ width: 9, height: 9 }} />, label: "Approved" },
-    review:   { bg: "rgba(201,169,110,0.12)",color: "#b07d30", icon: <Eye style={{ width: 9, height: 9 }} />,       label: "In Review"},
+    review:   { bg: "rgba(201,169,110,0.12)",color: "#b07d30", icon: <Clock style={{ width: 9, height: 9 }} />,       label: "Queued"},
   }[status] ?? { bg: "#eee", color: "#666", icon: null, label: status }
 
   return (
@@ -317,8 +317,8 @@ function HeatCell({ level, animDelay }: { level: number; animDelay: number }) {
   )
 }
 
-// Animated typing cursor in review
-function ReviewLine({ item, delay }: { item: typeof REVIEW_LINES[0]; delay: number }) {
+// Animated typing cursor in execution trace
+function TraceLogLine({ item, delay }: { item: typeof TRACE_LOG[0]; delay: number }) {
   const [visible, setVisible] = useState(false)
   useEffect(() => { const t = setTimeout(() => setVisible(true), delay); return () => clearTimeout(t) }, [delay])
 
@@ -392,7 +392,7 @@ export function AgentInterface({ revealDelay = 0 }: { revealDelay?: number }) {
     return () => clearInterval(t)
   }, [mounted])
 
-  // Code review: cycle through files and advance progress bars
+  // Execution trace: cycle through route steps and advance progress bars
   useEffect(() => {
     if (!mounted) return
     const t = setInterval(() => {
@@ -407,7 +407,7 @@ export function AgentInterface({ revealDelay = 0 }: { revealDelay?: number }) {
   // Cycle active file highlight every 3s
   useEffect(() => {
     if (!mounted) return
-    const t = setInterval(() => setReviewFileIdx(v => (v + 1) % ALL_REVIEW_FILES.length), 2800)
+    const t = setInterval(() => setReviewFileIdx(v => (v + 1) % ROUTE_STEPS.length), 2800)
     return () => clearInterval(t)
   }, [mounted])
 
@@ -416,7 +416,7 @@ export function AgentInterface({ revealDelay = 0 }: { revealDelay?: number }) {
     if (!mounted) return
     const t = setInterval(() => {
       setReviewLineIdx(p => {
-        if (p >= ALL_REVIEW_LINES.length) return 0
+        if (p >= TRACE_LOG.length) return 0
         return p + 1
       })
     }, 650)
@@ -494,10 +494,10 @@ export function AgentInterface({ revealDelay = 0 }: { revealDelay?: number }) {
         {/* Metrics strip — fixed height */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", borderBottom: "1px solid rgba(0,0,0,0.06)", background: "rgba(251,250,247,0.9)" }}>
           {[
-            { label: "PRs Merged today",  val: 18,       icon: <GitMerge style={{ width: 11, height: 11 }} />,   graph: <MiniBarGraph seed={0} /> },
-            { label: "Reviews completed", val: 34,       icon: <Eye style={{ width: 11, height: 11 }} />,         graph: <MiniBarGraph seed={5} /> },
-            { label: "Agent commits",     val: 127,      icon: <GitCommit style={{ width: 11, height: 11 }} />,   graph: <MiniDotGraph seed={2} /> },
-            { label: "Tasks / min",       val: reqCount, icon: <Zap style={{ width: 11, height: 11 }} />,         graph: <LiveSparkline seed={7} /> },
+            { label: "Swaps settled (24h)", val: 18,       icon: <GitMerge style={{ width: 11, height: 11 }} />,   graph: <MiniBarGraph seed={0} /> },
+            { label: "LP updates",           val: 34,       icon: <Activity style={{ width: 11, height: 11 }} />, graph: <MiniBarGraph seed={5} /> },
+            { label: "Plugin calls",         val: 127,      icon: <GitCommit style={{ width: 11, height: 11 }} />, graph: <MiniDotGraph seed={2} /> },
+            { label: "Agent ticks / min",    val: reqCount, icon: <Zap style={{ width: 11, height: 11 }} />,         graph: <LiveSparkline seed={7} /> },
           ].map((m, i) => (
             <div key={i} style={{ padding: "9px 12px", height: 82, overflow: "hidden", borderRight: i < 3 ? "1px solid rgba(0,0,0,0.06)" : "none", ...anim(60 + i * 45) }}>
               <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
@@ -520,7 +520,7 @@ export function AgentInterface({ revealDelay = 0 }: { revealDelay?: number }) {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 2px", flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                 <GitPullRequest style={{ width: 10, height: 10, color: "rgba(0,0,0,0.38)" }} />
-                <span style={{ fontSize: 8.5, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(0,0,0,0.38)", fontFamily: "monospace" }}>Pull Requests</span>
+                <span style={{ fontSize: 8.5, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(0,0,0,0.38)", fontFamily: "monospace" }}>Strategy queue</span>
               </div>
               <span style={{ fontSize: 7.5, color: "rgba(0,0,0,0.25)", fontFamily: "monospace" }}>{ALL_PRS.filter(p => p.status === "review").length} OPEN</span>
             </div>
@@ -563,7 +563,7 @@ export function AgentInterface({ revealDelay = 0 }: { revealDelay?: number }) {
             <div style={{ ...panel, padding: "8px 10px", flexShrink: 0, height: 76, overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
                 <Terminal style={{ width: 9, height: 9, color: "rgba(0,0,0,0.33)" }} />
-                <span style={{ fontSize: 7.5, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(0,0,0,0.33)", fontFamily: "monospace" }}>Commit Activity</span>
+                <span style={{ fontSize: 7.5, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(0,0,0,0.33)", fontFamily: "monospace" }}>Tick activity</span>
               </div>
               <div style={{ display: "flex", gap: 2, flexWrap: "wrap", maxWidth: 210, height: 30, overflow: "hidden" }}>
                 {activity.map((a, i) => <HeatCell key={i} level={a.level} animDelay={i * 18 + 300} />)}
@@ -578,26 +578,26 @@ export function AgentInterface({ revealDelay = 0 }: { revealDelay?: number }) {
             </div>
           </div>
 
-          {/* Col 2 — Code Review — fixed height */}
+          {/* Col 2 — Execution trace — fixed height */}
           <div style={{ display: "flex", flexDirection: "column", gap: 5, height: "100%", overflow: "hidden", ...anim(210) }}>
             <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 2px", flexShrink: 0 }}>
-              <Eye style={{ width: 10, height: 10, color: "rgba(0,0,0,0.38)" }} />
-              <span style={{ fontSize: 8.5, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(0,0,0,0.38)", fontFamily: "monospace" }}>Code Review — #{ALL_PRS[reviewFileIdx % ALL_PRS.length].id}</span>
+              <Activity style={{ width: 10, height: 10, color: "rgba(0,0,0,0.38)" }} />
+              <span style={{ fontSize: 8.5, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(0,0,0,0.38)", fontFamily: "monospace" }}>Execution trace — #{ALL_PRS[reviewFileIdx % ALL_PRS.length].id}</span>
             </div>
             <div style={{ ...panel, flex: 1, padding: "9px 10px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
               {/* Header — fixed */}
               <div style={{ marginBottom: 7, paddingBottom: 7, borderBottom: "1px solid rgba(0,0,0,0.05)", flexShrink: 0 }}>
-                <div style={{ fontSize: 9.5, fontWeight: 600, color: "#111", marginBottom: 2 }}>feat: parallel tool execution</div>
+                <div style={{ fontSize: 9.5, fontWeight: 600, color: "#111", marginBottom: 2 }}>swap: ETH → USDC (v3 route)</div>
                 <div style={{ display: "flex", gap: 5 }}>
                   <span style={{ fontSize: 7.5, color: "#28a745", fontFamily: "monospace" }}>+142</span>
                   <span style={{ fontSize: 7.5, color: "#d73a49", fontFamily: "monospace" }}>-27</span>
-                  <span style={{ fontSize: 7.5, color: "rgba(0,0,0,0.28)" }}>5 files</span>
+                  <span style={{ fontSize: 7.5, color: "rgba(0,0,0,0.28)" }}>5 steps</span>
                 </div>
               </div>
 
               {/* Progress bars — fixed height */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 9, flexShrink: 0 }}>
-                {ALL_REVIEW_FILES.map((f, i) => (
+                {ROUTE_STEPS.map((f, i) => (
                   <div key={f.file} style={{ opacity: i === reviewFileIdx ? 1 : 0.55, transition: "opacity 0.4s ease" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                       <span style={{ fontSize: 7.5, fontFamily: "monospace", color: i === reviewFileIdx ? "#111" : "rgba(0,0,0,0.42)", transition: "color 0.4s ease" }}>{f.file}</span>
@@ -610,8 +610,8 @@ export function AgentInterface({ revealDelay = 0 }: { revealDelay?: number }) {
 
               {/* Review comments — fixed height, clips overflow, no scroll */}
               <div style={{ borderTop: "1px solid rgba(0,0,0,0.05)", paddingTop: 7, flex: 1, overflow: "hidden" }}>
-                {ALL_REVIEW_LINES.slice(0, reviewLineIdx).slice(-5).map((item, i) => (
-                  <ReviewLine key={`${reviewLineIdx}-${i}`} item={item} delay={0} />
+                {TRACE_LOG.slice(0, reviewLineIdx).slice(-5).map((item, i) => (
+                  <TraceLogLine key={`${reviewLineIdx}-${i}`} item={item} delay={0} />
                 ))}
                 <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 2 }}>
                   <Terminal style={{ width: 7, height: 7, color: "rgba(0,0,0,0.18)" }} />
@@ -625,7 +625,7 @@ export function AgentInterface({ revealDelay = 0 }: { revealDelay?: number }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 5, height: "100%", overflow: "hidden", ...anim(260) }}>
             <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 2px", flexShrink: 0 }}>
               <GitCommit style={{ width: 10, height: 10, color: "rgba(0,0,0,0.38)" }} />
-              <span style={{ fontSize: 8.5, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(0,0,0,0.38)", fontFamily: "monospace" }}>Recent Commits</span>
+              <span style={{ fontSize: 8.5, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(0,0,0,0.38)", fontFamily: "monospace" }}>Recent settlements</span>
             </div>
             <div style={{ ...panel, flexShrink: 0, overflow: "hidden" }}>
               {COMMITS.slice(0, 4).map((c, i) => (
@@ -645,12 +645,12 @@ export function AgentInterface({ revealDelay = 0 }: { revealDelay?: number }) {
 
             <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "2px 2px 0", flexShrink: 0 }}>
               <Zap style={{ width: 10, height: 10, color: "rgba(0,0,0,0.38)" }} />
-              <span style={{ fontSize: 8.5, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(0,0,0,0.38)", fontFamily: "monospace" }}>CI / Agents</span>
+              <span style={{ fontSize: 8.5, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(0,0,0,0.38)", fontFamily: "monospace" }}>Agent runtime</span>
             </div>
             <div style={{ ...panel, flexShrink: 0, overflow: "hidden" }}>
               {[
                 { name: "researcher-agent", status: "passing", duration: "1m 32s" },
-                { name: "analyst-agent",    status: "running", duration: "0m 48s" },
+                { name: "strategist-agent", status: "running", duration: "0m 48s" },
                 { name: "executor-agent",   status: "passing", duration: "2m 11s" },
                 { name: "monitor-agent",    status: "running", duration: "0m 54s" },
               ].map((a, i) => (

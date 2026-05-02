@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useState } from "react"
 
 const NAV_LINKS = [
@@ -29,7 +30,9 @@ export function MobileNav() {
           className="flex items-center justify-between px-5 py-3 rounded-2xl border border-black/[0.06]"
           style={NAV_STYLE}
         >
-          <span className="font-pixel text-xs tracking-[0.25em] text-black/70">RUMBLE</span>
+          <Link href="/" className="font-pixel text-xs tracking-[0.25em] text-black/70 hover:text-black transition-colors">
+            ROMBO
+          </Link>
 
           {/* Desktop links */}
           <div className="hidden md:flex items-center gap-7" style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}>
@@ -45,9 +48,13 @@ export function MobileNav() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button className="text-[11px] px-4 py-2 rounded-xl border border-black/10 text-black/60 hover:text-black hover:border-black/20 hover:bg-black/[0.03] transition-all duration-200 tracking-wide hidden md:block" style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}>
+            <Link
+              href="/auth"
+              className="text-[11px] px-4 py-2 rounded-xl border border-black/10 text-black/60 hover:text-black hover:border-black/20 hover:bg-black/[0.03] transition-all duration-200 tracking-wide hidden md:inline-flex items-center justify-center"
+              style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}
+            >
               START BUILDING
-            </button>
+            </Link>
 
             {/* Burger — mobile only */}
             <button
@@ -102,9 +109,14 @@ export function MobileNav() {
               </a>
             ))}
             <div className="mt-1 px-2 pb-1">
-              <button className="w-full text-[11px] px-4 py-2.5 rounded-xl border border-black/10 text-black/60 hover:text-black hover:border-black/20 hover:bg-black/[0.03] transition-all duration-200 tracking-wide" style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}>
+              <Link
+                href="/auth"
+                onClick={close}
+                className="flex w-full text-center justify-center text-[11px] px-4 py-2.5 rounded-xl border border-black/10 text-black/60 hover:text-black hover:border-black/20 hover:bg-black/[0.03] transition-all duration-200 tracking-wide"
+                style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}
+              >
                 START BUILDING
-              </button>
+              </Link>
             </div>
           </div>
         </div>
