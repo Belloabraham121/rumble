@@ -57,12 +57,20 @@ export function AgentCard({ agent, onPauseToggle, onRemove }: Props) {
             v{agent.config.version} · <span className="capitalize">{agent.config.riskLevel}</span>
           </p>
         </div>
-        <Link
-          href={`/dashboard/agents/${agent.id}`}
-          className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#111] text-white text-[10px] tracking-wider hover:bg-[#333] transition-colors"
-        >
-          Open →
-        </Link>
+        <div className="shrink-0 flex flex-col items-end gap-1">
+          <Link
+            href={`/dashboard/transactions?agent=${agent.id}`}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#111] text-white text-[10px] tracking-wider hover:bg-[#333] transition-colors"
+          >
+            View TX
+          </Link>
+          <Link
+            href={`/dashboard/agents/${agent.id}`}
+            className="text-[10px] text-black/40 hover:text-black/70 transition-colors"
+          >
+            Arena →
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-2">

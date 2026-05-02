@@ -24,6 +24,8 @@ export type AgentActivityEvent = {
   kind: ExecutionKind
   title: string
   detail: string
+  /** Human-readable rationale (strategy / guardrails) — UI-only until backend. */
+  reason?: string
   pnlEth?: number
   gasGwei?: number
   txShort?: string

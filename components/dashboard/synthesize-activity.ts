@@ -36,6 +36,26 @@ function titleFor(kind: ExecutionKind): string {
   }
 }
 
+function reasonFor(kind: ExecutionKind, hit: boolean): string {
+  if (!hit && kind === "box_skipped") {
+    return "Price moved past the trigger band before the route landed; agent skipped to avoid bad fills."
+  }
+  switch (kind) {
+    case "swap":
+      return "Arena head aligned with your active row; quoter picked the best-path swap within slippage caps."
+    case "add_liquidity":
+      return "Spot entered the LP box; agent widened range within max-position rules for this pool."
+    case "remove_liquidity":
+      return "Take-profit / IL trim: band exit triggered partial unwind per reflection depth."
+    case "claim_fees":
+      return "Fee accrual crossed minimum claim threshold; gas vs reward stayed under your gas cap."
+    case "close_position":
+      return "Volatility shift flagged range exit; position flattened before adverse IL."
+    default:
+      return "Strategy tick evaluated boxes and pool guardrails for this resolution."
+  }
+}
+
 function detailFor(kind: ExecutionKind, payoutEth: number, mult: number): string {
   const usdc = Math.round(580 + Math.random() * 420)
   switch (kind) {
@@ -73,6 +93,7 @@ export function buildActivityFromHit(payload: HitPayload): AgentActivityEvent {
     kind,
     title: titleFor(kind),
     detail: detailFor(kind, payload.payoutEth, payload.mult),
+    reason: reasonFor(kind, payload.hit),
     pnlEth: pnl,
     gasGwei,
     txShort: randShortTx(),

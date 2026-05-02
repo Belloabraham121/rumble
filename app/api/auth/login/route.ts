@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { SESSION_COOKIE } from "@/lib/auth/constants"
 import { encodeSession, type SessionUser } from "@/lib/auth/session"
+import { upsertUserByEmail } from "@/lib/db/users.repo"
+import { syncPrivyUserAfterLogin } from "@/lib/integrations/privy/bridge-user"
 
 export async function POST(req: Request) {
   let body: unknown
@@ -20,6 +22,14 @@ export async function POST(req: Request) {
   if (password.length < 8) {
     return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 })
   }
+
+  const mongoUser = await upsertUserByEmail(email)
+  void syncPrivyUserAfterLogin({
+    email,
+    romboUserIdHex: mongoUser?._id.toHexString(),
+  }).catch(err => {
+    console.error("[rombo] Privy user bridge failed:", err)
+  })
 
   const user: SessionUser = { email }
   const token = encodeSession(user)
