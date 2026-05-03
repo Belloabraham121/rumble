@@ -22,15 +22,52 @@ import {
   type AgentStatus,
   type AgentTotals,
 } from "@/lib/agents/agent-types";
+
+/** Coerce client/localStorage shapes so `PUT /api/agents/sync` passes server Zod validation. */
+function normalizeAgentsForSync(list: Agent[]): Agent[] {
+  return list.map((a) => ({
+    ...a,
+    config: migrateAgentConfig(a.config),
+    boxes: (Array.isArray(a.boxes) ? a.boxes : []).map((b) => migratePriceBox(b)),
+    totals: {
+      pnlEth: Number.isFinite(a.totals?.pnlEth) ? a.totals.pnlEth : 0,
+      gasGwei: Number.isFinite(a.totals?.gasGwei) ? a.totals.gasGwei : 0,
+      fills: Number.isFinite(a.totals?.fills) ? a.totals.fills : 0,
+      skips: Number.isFinite(a.totals?.skips) ? a.totals.skips : 0,
+    },
+    activity: Array.isArray(a.activity) ? a.activity : [],
+    createdAt: typeof a.createdAt === "number" ? a.createdAt : Date.now(),
+    status: a.status === "paused" ? "paused" : "running",
+  }));
+}
+
+async function toastSyncFailure(res: Response) {
+  let description = "Check your connection or try signing in again.";
+  try {
+    const j = (await res.json()) as { error?: unknown };
+    if (typeof j.error === "string" && j.error.trim()) {
+      description = j.error.trim();
+    }
+  } catch {
+    /* ignore */
+  }
+  toast.error("Could not save agents", { description });
+}
 import { toast } from "sonner";
 
 const STORAGE_KEY = "rombo.agents.v1";
 
 type CreateAgentInput = Partial<AgentConfig> & { name: string };
 
+export type AgentsHydrationIssue = "mongo" | "auth" | null;
+
 type AgentsContextValue = {
   agents: Agent[];
   ready: boolean;
+  /** Set after first `/api/agents` attempt — ticks/sync need Mongo + session. */
+  backendHydrated: boolean;
+  /** Why agents could not load from the server (empty list + local-only). */
+  agentsHydrationIssue: AgentsHydrationIssue;
   createAgent: (input: CreateAgentInput) => Agent;
   removeAgent: (id: string) => void;
   updateConfig: (id: string, patch: Partial<AgentConfig>) => void;
@@ -93,6 +130,8 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   /** After first `/api/agents` hydration attempt (Mongo may be off). */
   const [backendHydrated, setBackendHydrated] = useState(false);
+  const [agentsHydrationIssue, setAgentsHydrationIssue] =
+    useState<AgentsHydrationIssue>(null);
   const agentsRef = useRef<Agent[]>([]);
   agentsRef.current = agents;
 
@@ -130,13 +169,30 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!ready || !sessionEmail) return;
     let cancelled = false;
-    (async () => {
+
+    async function hydrateFromApi() {
       try {
         const r = await fetch("/api/agents", { credentials: "same-origin" });
-        if (cancelled || !r.ok) {
+        if (cancelled) return;
+
+        if (r.status === 503) {
+          setAgentsHydrationIssue("mongo");
           setBackendHydrated(true);
           return;
         }
+        if (r.status === 401) {
+          setAgentsHydrationIssue("auth");
+          setBackendHydrated(true);
+          return;
+        }
+
+        if (!r.ok) {
+          setAgentsHydrationIssue(null);
+          setBackendHydrated(true);
+          return;
+        }
+
+        setAgentsHydrationIssue(null);
         const j = (await r.json()) as { agents?: Agent[] };
         const remote = Array.isArray(j.agents) ? j.agents : [];
         if (remote.length > 0) {
@@ -144,20 +200,35 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
         } else {
           const local = agentsRef.current;
           if (local.length > 0) {
-            await fetch("/api/agents/sync", {
+            const syncRes = await fetch("/api/agents/sync", {
               method: "PUT",
               credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ agents: local }),
+              body: JSON.stringify({ agents: normalizeAgentsForSync(local) }),
             });
+            if (
+              !syncRes.ok &&
+              syncRes.status !== 401 &&
+              syncRes.status !== 503
+            ) {
+              void toastSyncFailure(syncRes);
+            }
           }
         }
       } finally {
         if (!cancelled) setBackendHydrated(true);
       }
-    })();
+    }
+
+    void hydrateFromApi();
+
+    function onFocus() {
+      void hydrateFromApi();
+    }
+    window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onFocus);
     };
   }, [ready, sessionEmail]);
 
@@ -170,12 +241,10 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
         method: "PUT",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agents }),
+        body: JSON.stringify({ agents: normalizeAgentsForSync(agents) }),
       }).then((res) => {
         if (!res.ok && res.status !== 401 && res.status !== 503) {
-          toast.error("Could not save agents", {
-            description: "Check your connection or try signing in again.",
-          });
+          void toastSyncFailure(res);
         }
       });
     }, 2800);
@@ -245,6 +314,8 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
     () => ({
       agents,
       ready,
+      backendHydrated,
+      agentsHydrationIssue,
       createAgent,
       removeAgent,
       updateConfig,
@@ -254,6 +325,8 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
     [
       agents,
       ready,
+      backendHydrated,
+      agentsHydrationIssue,
       createAgent,
       removeAgent,
       updateConfig,

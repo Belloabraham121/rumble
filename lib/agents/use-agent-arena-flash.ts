@@ -59,7 +59,7 @@ export function useAgentArenaFlash(agentId: string | undefined, arenaPoolId: Are
       }
     }
 
-    const id = window.setInterval(poll, 2800)
+    const id = window.setInterval(poll, 2200)
     void poll()
     return () => {
       cancelled = true

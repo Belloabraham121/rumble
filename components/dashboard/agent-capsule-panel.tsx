@@ -14,6 +14,7 @@ import {
   normalizeEnabledPoolIds,
   type ArenaPoolId,
 } from "@/lib/agents/arena-pools"
+import { chainDisplayName } from "@/lib/rombo/chain-config"
 import type { PriceBox } from "@/components/dashboard/types"
 
 const BAR = {
@@ -44,6 +45,12 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
       {children}
     </p>
   )
+}
+
+function parseBalanceAmount(raw: string | null | undefined): number | null {
+  if (raw == null || raw === "") return null
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : null
 }
 
 const ACTION_OPTS: { value: PriceBox["action"]; label: string }[] = [
@@ -148,6 +155,10 @@ export function AgentCapsulePanel({
     onBoxesChange(next)
     onStatusChange("running")
   }
+
+  const ethForGas = parseBalanceAmount(fundingWallet?.balanceEth ?? undefined)
+  const showGasWarning =
+    Boolean(fundingWallet?.address) && ethForGas !== null && ethForGas < 0.001
 
   return (
     <aside
@@ -370,27 +381,47 @@ export function AgentCapsulePanel({
       <SectionTitle>Funding</SectionTitle>
       <div className="rounded-xl border border-dashed border-black/15 bg-[#fafaf8]/90 px-3 py-2.5 space-y-2">
         <p className="text-[10px] text-black/45 leading-relaxed">
-          Privy agent wallet for <span className="font-mono text-black/55">{agentId}</span>. Send native ETH for gas and USDC on this chain for swaps.
+          Privy <strong className="font-medium text-black/60">agent wallet</strong> for{" "}
+          <span className="font-mono text-black/55">{agentId}</span>
+          {fundingWallet?.chainId != null && (
+            <>
+              {" "}
+              on <span className="text-black/55">{chainDisplayName(fundingWallet.chainId)}</span>
+            </>
+          )}
+          . Fund it before running ticks: every swap and on-chain action spends <strong className="font-medium text-black/55">native ETH for gas</strong>, and each pool needs the right <strong className="font-medium text-black/55">ERC-20 balances</strong> to trade (e.g. USDC on ETH/USDC, WETH/WBTC exposure on WBTC/ETH, USDC + USDT on the stable pair).
         </p>
+        <ul className="list-disc pl-4 text-[10px] text-black/42 leading-relaxed space-y-0.5">
+          <li>Keep a gas buffer in ETH — transactions fail if you cannot pay fees.</li>
+          <li>Hold enough of each token your enabled pools actually swap — the LLM cannot spend what is not there.</li>
+        </ul>
         {fundingWallet?.address ? (
           <div className="space-y-1.5">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-mono text-black/75 break-all">{fundingWallet.address}</span>
-              <button
-                type="button"
-                className="shrink-0 rounded-lg border border-black/12 px-2 py-1 text-[9px] uppercase tracking-wide text-black/55 hover:bg-black/[0.04]"
-                onClick={() => {
-                  void navigator.clipboard.writeText(fundingWallet.address!).then(() => {
-                    toast.success("Address copied")
-                  })
-                }}
-              >
-                Copy
-              </button>
-            </div>
+            {showGasWarning && (
+              <p className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-2 py-1.5 text-[10px] text-amber-950/90">
+                Low native ETH for gas on this chain — add more before relying on live swaps.
+              </p>
+            )}
+            <button
+              type="button"
+              className="w-full text-left rounded-lg border border-black/[0.08] bg-white/60 px-2 py-2 hover:bg-white/90 transition-colors"
+              onClick={() => {
+                void navigator.clipboard.writeText(fundingWallet.address!).then(() => {
+                  toast.success("Agent wallet address copied")
+                })
+              }}
+              title="Click to copy address"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-[10px] font-mono text-black/75 break-all">{fundingWallet.address}</span>
+                <span className="shrink-0 rounded-md border border-black/12 px-2 py-0.5 text-[9px] uppercase tracking-wide text-black/45">
+                  Copy
+                </span>
+              </div>
+            </button>
             <div className="grid grid-cols-2 gap-2 text-[10px]">
               <div>
-                <p className="text-[8px] uppercase tracking-wider text-black/35">ETH</p>
+                <p className="text-[8px] uppercase tracking-wider text-black/35">ETH (gas)</p>
                 <p className="tabular-nums text-black/75">{fundingWallet.balanceEth ?? "—"}</p>
               </div>
               <div>
@@ -415,7 +446,15 @@ export function AgentCapsulePanel({
 
       <SectionTitle>Price boxes (runtime)</SectionTitle>
       <p className="text-[10px] text-black/38 leading-snug -mt-1 mb-2">
-        Chart coordinate bands; each tick the server may consult OpenAI when env has OPENAI_API_KEY, then guardrails and each box&apos;s action drive execution.
+        Chart <strong className="font-medium text-black/50">coordinate</strong> bands (not USD ranges).
+        A swap or LP step runs only when live spot maps inside a box&apos;s{" "}
+        <strong className="font-medium text-black/50">low–high</strong>; otherwise ticks log{" "}
+        <code className="rounded bg-black/[0.06] px-1 font-mono text-[9px]">no_box_hit</code>.
+        OpenAI (when OPENAI_API_KEY is set) picks among boxes whose ranges contain the coordinate — execution still requires UNISWAP_API_KEY, a funded agent wallet, and{" "}
+        <code className="rounded bg-black/[0.06] px-1 font-mono text-[9px]">
+          ROMBO_AGENT_RUNTIME_EXECUTE_SWAPS
+        </code>{" "}
+        not set to <code className="font-mono text-[9px]">false</code>.
       </p>
 
       <div className="space-y-3">

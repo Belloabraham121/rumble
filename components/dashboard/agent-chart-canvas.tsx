@@ -2,7 +2,15 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { chartTheme as T } from "@/components/dashboard/chart-theme"
+import {
+  arenaMultiplierJitterFromSeed,
+  arenaSubgraphSnapshotFromStrings,
+  multiplierForArenaGridCell,
+  type ArenaPoolSubgraphSnapshot,
+} from "@/lib/agents/arena-box-multiplier"
+import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import { getPoolChartSim } from "@/lib/agents/arena-pools"
+import { chartCoordFromUsd } from "@/lib/agents/runtime/chart-coord"
 
 type Props = {
   selectedTargetId: string | null
@@ -30,6 +38,16 @@ type Props = {
   liveUsdPrice?: number | null
   /** Optional seed prices (most recent USD closes) used to prime the trail on pool change. */
   liveSeedUsdPrices?: number[]
+  /**
+   * 24h subgraph fields from `/api/data/pools` — when set, grid cell multipliers match
+   * server arena blending (geometry + activity).
+   */
+  poolActivity?: {
+    volumeUsd24h?: string
+    feesUsd24h?: string
+    totalValueLockedUsd?: string
+    tick?: string
+  } | null
 }
 
 const W = 1600
@@ -53,13 +71,20 @@ type TargetBox = {
    * scroll offset and they can never overlap each other.
    */
   lattice: number
-  mult: number
+  /** Per-cell visual variance; mult is derived live from spot + this until resolution. */
+  jitter: number
   resolved: boolean
   hit: boolean
+  /** Set when the box reaches the head — freezes mult for that frame (no more real-time drift). */
+  lockedMult?: number
 }
 
 function priceToY(price: number, minP: number, maxP: number) {
-  const n = (price - minP) / (maxP - minP)
+  if (!Number.isFinite(price)) return (PAD.t + H - PAD.b) / 2
+  const denom = maxP - minP
+  const d = denom > 1e-18 ? denom : 1
+  const n = (price - minP) / d
+  if (!Number.isFinite(n)) return (PAD.t + H - PAD.b) / 2
   return PAD.t + (1 - n) * (H - PAD.t - PAD.b)
 }
 
@@ -69,28 +94,24 @@ function rowForPrice(p: number, minP: number, maxP: number) {
   return Math.max(0, Math.min(GRID_ROWS - 1, Math.floor(n * GRID_ROWS)))
 }
 
-function pickMultiplier(row: number) {
-  // Edges pay more; middle rows pay less. Small random jitter per box.
-  const center = (GRID_ROWS - 1) / 2
-  const d = Math.abs(row - center) / center
-  const base = 1.1 + d * 3.2
-  const jitter = 0.92 + Math.random() * 0.26
-  return Math.round(base * jitter * 100) / 100
-}
-
-/**
- * Deterministic (seed-driven) multiplier for the initial grid. Using
- * Math.random() in the initial useState would cause a hydration mismatch
- * between SSR and client render, so the startup waves get a stable hash
- * and scrolled-in boxes keep using the random jitter variant above.
- */
-function seededMultiplier(row: number, seed: number) {
-  const center = (GRID_ROWS - 1) / 2
-  const d = Math.abs(row - center) / center
-  const base = 1.1 + d * 3.2
-  const hashed = (seed * 9301 + 49297) % 233280
-  const jitter = 0.92 + (hashed / 233280) * 0.26
-  return Math.round(base * jitter * 100) / 100
+/** Band-width / spot alignment multipliers shared with server ticks (`arena-box-multiplier.ts`). */
+function spawnCellMultiplier(
+  row: number,
+  activeRow: number,
+  spotCoord: number,
+  poolId: string,
+  jitter: number | undefined,
+  subgraph: ArenaPoolSubgraphSnapshot | null,
+) {
+  return multiplierForArenaGridCell({
+    row,
+    activeRow,
+    gridRows: GRID_ROWS,
+    spotChartCoord: spotCoord,
+    arenaPoolId: poolId as ArenaPoolId,
+    jitter,
+    subgraph,
+  })
 }
 
 export function AgentChartCanvas({
@@ -104,12 +125,27 @@ export function AgentChartCanvas({
   serverArenaFlash = null,
   liveUsdPrice = null,
   liveSeedUsdPrices,
+  poolActivity = null,
 }: Props) {
   const uid = useId().replace(/:/g, "")
   const lineGlowId = `${uid}-lineGlow`
   const cellGlowLightId = `${uid}-cellGlowLight`
   const areaFillId = `${uid}-areaFill`
   const poolSim = useMemo(() => getPoolChartSim(poolId), [poolId])
+
+  const subgraphForMult = useMemo(
+    () => arenaSubgraphSnapshotFromStrings(poolActivity ?? undefined),
+    [
+      poolActivity?.volumeUsd24h,
+      poolActivity?.feesUsd24h,
+      poolActivity?.totalValueLockedUsd,
+      poolActivity?.tick,
+    ],
+  )
+  const subgraphMultRef = useRef<ArenaPoolSubgraphSnapshot | null>(null)
+  useEffect(() => {
+    subgraphMultRef.current = subgraphForMult
+  }, [subgraphForMult])
 
   const gl = PAD.l
   const chartRight = W - PAD.r
@@ -129,11 +165,12 @@ export function AgentChartCanvas({
     const init: TargetBox[] = []
     for (let lattice = HEAD_COL + 1; lattice <= GRID_COLS; lattice++) {
       for (let row = 0; row < GRID_ROWS; row++) {
+        const seed = lattice * 37 + row
         init.push({
           id: `t-init-${lattice}-${row}`,
           row,
           lattice,
-          mult: seededMultiplier(row, lattice * 37 + row),
+          jitter: arenaMultiplierJitterFromSeed(seed),
           resolved: false,
           hit: false,
         })
@@ -173,6 +210,13 @@ export function AgentChartCanvas({
   const headY = priceToY(currentP, minP, maxP)
   const activeRow = rowForPrice(currentP, minP, maxP)
 
+  /** Same USD→coord mapping as the RAF loop so displayed mult tracks spot in real time. */
+  const usdForArenaMult =
+    liveUsdPrice != null && Number.isFinite(liveUsdPrice)
+      ? liveUsdPrice
+      : poolSim.usdFromSim(currentP)
+  const spotCoordForDisplay = chartCoordFromUsd(usdForArenaMult, poolId as ArenaPoolId)
+
   const parsedBet = Number.parseFloat(betAmount)
   const safeBet = Number.isFinite(parsedBet) && parsedBet > 0 ? parsedBet : 0
 
@@ -208,7 +252,7 @@ export function AgentChartCanvas({
    * stroke never disappears when history has one sample or is briefly stale vs `currentP`.
    */
   const pathD = useMemo(() => {
-    const trail = history.slice(-48)
+    const trail = history.filter(h => Number.isFinite(h.p)).slice(-48)
     const hy = priceToY(currentP, minP, maxP)
     const parts: string[] = []
     if (trail.length === 0) {
@@ -229,7 +273,9 @@ export function AgentChartCanvas({
   /** Seed history from real candles when provided. */
   useEffect(() => {
     if (!liveSeedUsdPrices || liveSeedUsdPrices.length === 0) return
-    const seeded = liveSeedUsdPrices.slice(-120).map((p, i) => ({ x: i, p }))
+    const closes = liveSeedUsdPrices.filter(p => Number.isFinite(p))
+    if (closes.length === 0) return
+    const seeded = closes.slice(-120).map((p, i) => ({ x: i, p }))
     setHistory(seeded)
     const last = seeded[seeded.length - 1]
     if (last) {
@@ -250,7 +296,10 @@ export function AgentChartCanvas({
     if (liveUsdPrice == null || !Number.isFinite(liveUsdPrice)) return
     if (liveSeedUsdPrices && liveSeedUsdPrices.length > 0) return
     setHistory(h => {
-      const legacySim = h.length > 0 && Math.max(...h.map(x => x.p)) < 200 && liveUsdPrice > 300
+      const finite = h.map(x => x.p).filter(Number.isFinite)
+      const maxHist = finite.length > 0 ? Math.max(...finite) : -Infinity
+      const legacySim =
+        finite.length > 0 && maxHist < 200 && liveUsdPrice > 300
       if (!legacySim && h.length >= 2) return h
       return [
         { x: 0, p: liveUsdPrice },
@@ -291,9 +340,14 @@ export function AgentChartCanvas({
 
       const nextRow = rowForPrice(next, liveMinP, liveMaxP)
 
+      const usdForCoord =
+        live != null && Number.isFinite(live) ? live : poolSim.usdFromSim(next)
+      const spotCoordForMult = chartCoordFromUsd(usdForCoord, poolId as ArenaPoolId)
+
       setCurrentP(next)
       onPriceUpdate?.(reportedUsd)
       setHistory(h => {
+        if (!Number.isFinite(next)) return h
         const lastX = h[h.length - 1]?.x ?? 0
         return [...h, { x: lastX + 1, p: next }].slice(-120)
       })
@@ -316,7 +370,7 @@ export function AgentChartCanvas({
               id: `t-${idRef.current}`,
               row,
               lattice,
-              mult: pickMultiplier(row),
+              jitter: 0.94 + Math.random() * 0.18,
               resolved: false,
               hit: false,
             })
@@ -334,13 +388,23 @@ export function AgentChartCanvas({
             if (!resolved && effectiveCol <= HEAD_COL) {
               resolved = true
               hit = b.row === nextRow
+              const lockMult = spawnCellMultiplier(
+                b.row,
+                nextRow,
+                spotCoordForMult,
+                poolId,
+                b.jitter,
+                subgraphMultRef.current,
+              )
               if (hit) {
-                const payout = safeBet > 0 ? (safeBet * b.mult).toFixed(4) : "0.0000"
+                const payout = safeBet > 0 ? (safeBet * lockMult).toFixed(4) : "0.0000"
                 flashed = {
-                  label: `+${payout} ETH · x${b.mult.toFixed(2)}`,
+                  label: `+${payout} ETH · x${lockMult.toFixed(2)}`,
                   at: Date.now(),
                 }
               }
+              moved.push({ ...b, resolved, hit, lockedMult: lockMult })
+              continue
             }
             if (effectiveCol < -0.8) continue
             moved.push({ ...b, resolved, hit })
@@ -452,6 +516,18 @@ export function AgentChartCanvas({
             per row, and all boxes share the same fractional scroll offset, so
             they tile perfectly and never overlap each other. */}
         {targets.map(b => {
+          const jitterSafe =
+            Number.isFinite(b.jitter) && b.jitter > 0 ? b.jitter : 1
+          const m =
+            b.lockedMult ??
+            spawnCellMultiplier(
+              b.row,
+              activeRow,
+              spotCoordForDisplay,
+              poolId,
+              jitterSafe,
+              subgraphForMult,
+            )
           const effectiveCol = b.lattice - scrollOffset
           const x = gl + effectiveCol * cellW
           const y = gridTop + b.row * cellH
@@ -517,7 +593,7 @@ export function AgentChartCanvas({
                   letterSpacing: "0.02em",
                 }}
               >
-                {b.mult.toFixed(2)}x
+                {m.toFixed(2)}x
               </text>
               {isSelected && !b.resolved && safeBet > 0 && (
                 <text
@@ -527,7 +603,7 @@ export function AgentChartCanvas({
                   fill="rgba(5,150,105,0.9)"
                   style={{ fontSize: 10, fontFamily: "ui-monospace, monospace", fontWeight: 700 }}
                 >
-                  WIN {(safeBet * b.mult).toFixed(3)}
+                  WIN {(safeBet * m).toFixed(3)}
                 </text>
               )}
               {b.resolved && b.hit && (
@@ -539,6 +615,17 @@ export function AgentChartCanvas({
                   style={{ fontSize: 10, fontFamily: "ui-monospace, monospace", fontWeight: 700 }}
                 >
                   HIT
+                </text>
+              )}
+              {b.resolved && !b.hit && (
+                <text
+                  x={x + cellW / 2}
+                  y={y + cellH - 8}
+                  textAnchor="middle"
+                  fill="rgba(100, 100, 100, 0.75)"
+                  style={{ fontSize: 9, fontFamily: "ui-monospace, monospace", fontWeight: 600 }}
+                >
+                  MISS · no payout
                 </text>
               )}
             </g>

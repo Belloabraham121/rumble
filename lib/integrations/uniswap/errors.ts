@@ -66,7 +66,6 @@ function tryParseRequestId(bodyText: string): string | undefined {
  */
 export function classifyUniswapHttpFailure(input: ClassifyUniswapFailureInput): RomboUniswapError {
   const { httpStatus, bodyText = "" } = input
-  const lower = bodyText.toLowerCase()
   const requestId = bodyText.length > 0 ? tryParseRequestId(bodyText) : undefined
 
   switch (httpStatus) {
@@ -88,19 +87,13 @@ export function classifyUniswapHttpFailure(input: ClassifyUniswapFailureInput): 
         bodyText.slice(0, 500) || "Uniswap API validation error (400).",
         { httpStatus, requestId },
       )
-    case 404:
-      if (lower.includes("no quotes") || lower.includes("no quote")) {
-        return new RomboUniswapError(
-          UNISWAP_ERROR_CODES.NO_QUOTE,
-          "No quotes available — check min UniswapX notionals, chain/token addresses, and bridge+swap rules.",
-          { httpStatus, requestId },
-        )
-      }
-      return new RomboUniswapError(
-        UNISWAP_ERROR_CODES.NO_QUOTE,
-        bodyText.slice(0, 500) || "Uniswap API returned 404.",
-        { httpStatus, requestId },
-      )
+    case 404: {
+      const detail = bodyText.trim().slice(0, 500)
+      const msg = detail
+        ? `No quote (HTTP 404). ${detail}`
+        : "No quote (HTTP 404) — empty response body. See Uniswap supported chains, token addresses, and pool liquidity."
+      return new RomboUniswapError(UNISWAP_ERROR_CODES.NO_QUOTE, msg, { httpStatus, requestId })
+    }
     case 500:
       return new RomboUniswapError(
         UNISWAP_ERROR_CODES.SERVER_ERROR,

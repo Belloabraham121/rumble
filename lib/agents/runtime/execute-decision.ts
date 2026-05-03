@@ -4,7 +4,7 @@ import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import type { AgentConfig } from "@/lib/agents/agent-types"
 import { insertTradingAttempt } from "@/lib/db/trading.repo"
 import type { SwapQuoteSnapshot } from "@/lib/trading/swap-quote-snapshot"
-import { RomboUniswapError } from "@/lib/integrations/uniswap/errors"
+import { RomboUniswapError, UNISWAP_ERROR_CODES } from "@/lib/integrations/uniswap/errors"
 import { buildAgentQuoteRequestBody } from "@/lib/integrations/uniswap/agent-quote"
 import { tryExtractEip712FromQuote } from "@/lib/integrations/uniswap/eip712-from-quote"
 import {
@@ -28,21 +28,10 @@ import {
 import { getRomboServerEnv } from "@/lib/rombo/server-env"
 import { safeExcerpt } from "@/lib/api/trading-audit"
 import type { RuntimeDecision } from "@/lib/agents/runtime/evaluate-boxes"
+import { executeAgentLpDecision } from "@/lib/agents/runtime/execute-agent-lp"
+import type { ExecuteAgentContext, ExecuteOutcome } from "@/lib/agents/runtime/execute-types"
 
-export type ExecuteAgentContext = {
-  romboUserIdHex: string
-  email?: string
-  agentId: string
-  privyWalletId: string
-  walletAddress: string
-  chainId: number
-  config: AgentConfig
-  idempotencyKey: string
-}
-
-export type ExecuteOutcome =
-  | { ok: true; txHash?: string; summary: string }
-  | { ok: false; summary: string; error?: string }
+export type { ExecuteAgentContext, ExecuteOutcome } from "@/lib/agents/runtime/execute-types"
 
 function romboTxToPrivy(tx: RomboUnsignedEthTx): Record<string, unknown> {
   return { ...tx }
@@ -98,11 +87,7 @@ export async function executeAgentDecision(
   }
 
   if (decision.type === "lp_increase" || decision.type === "lp_decrease") {
-    return {
-      ok: false,
-      summary: "lp_actions_not_automated_yet",
-      error: decision.type,
-    }
+    return executeAgentLpDecision(decision, ctx)
   }
 
   if (decision.type !== "swap") {
@@ -134,10 +119,15 @@ export async function executeAgentDecision(
     await persistAttempt({ ctx, kind: "quote", payload: quoteBody, response: quoteResponse })
   } catch (e) {
     await persistAttempt({ ctx, kind: "quote", payload: quoteBody, error: e })
+    const errorMsg = e instanceof Error ? e.message : String(e)
+    const noRouteTestnet =
+      e instanceof RomboUniswapError &&
+      e.code === UNISWAP_ERROR_CODES.NO_QUOTE &&
+      ctx.config.chain === "base-sepolia"
     return {
       ok: false,
-      summary: "quote_failed",
-      error: e instanceof Error ? e.message : String(e),
+      summary: noRouteTestnet ? "quote_failed_no_route_testnet" : "quote_failed",
+      error: errorMsg,
     }
   }
 

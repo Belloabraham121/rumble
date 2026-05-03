@@ -33,7 +33,9 @@ export async function ensureAgentPrivyWallet(input: EnsureAgentWalletInput): Pro
     }
   }
 
-  const authz = requireWalletAuthorizationContext()
+  // Ensure authorization key is configured for later sign/broadcast; do not pass
+  // `authorization_context` into `wallets().create` — current Privy Wallet API rejects it (400 unrecognized_keys).
+  requireWalletAuthorizationContext()
 
   const policyIds = getRomboServerEnv().privyDefaultPolicyIds
   const policySlice = policyIds[0] ? [policyIds[0]] : undefined
@@ -44,7 +46,6 @@ export async function ensureAgentPrivyWallet(input: EnsureAgentWalletInput): Pro
     external_id: sanitizePrivyExternalId(input.agentId),
     policy_ids: policySlice,
     idempotency_key: `rombo-agent-${input.romboUserIdHex}-${input.agentId}`,
-    authorization_context: authz,
   })
 
   await upsertAgentWalletRecord({

@@ -3,7 +3,17 @@
 import { useEffect, useState } from "react"
 import type { AgentMetricsSnapshot, MetricsRange } from "@/lib/agents/metrics-types"
 
-export function useAgentMetrics(agentId: string | undefined, range: MetricsRange) {
+export type UseAgentMetricsOptions = {
+  /** When &gt; 0, refetches on this interval without toggling the loading state. */
+  pollMs?: number
+}
+
+export function useAgentMetrics(
+  agentId: string | undefined,
+  range: MetricsRange,
+  options?: UseAgentMetricsOptions,
+) {
+  const pollMs = options?.pollMs ?? 0
   const [metrics, setMetrics] = useState<AgentMetricsSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -16,18 +26,21 @@ export function useAgentMetrics(agentId: string | undefined, range: MetricsRange
       return
     }
 
+    const resolvedAgentId = agentId
     let cancelled = false
-    setLoading(true)
-    setError(null)
 
-    void (async () => {
+    async function load(initial: boolean) {
+      if (initial) {
+        setLoading(true)
+        setError(null)
+      }
       try {
         const res = await fetch(
-          `/api/agents/${encodeURIComponent(agentId)}/metrics?range=${encodeURIComponent(range)}`,
+          `/api/agents/${encodeURIComponent(resolvedAgentId)}/metrics?range=${encodeURIComponent(range)}`,
           { credentials: "same-origin" },
         )
         if (!res.ok) {
-          if (!cancelled) {
+          if (!cancelled && initial) {
             setMetrics(null)
             setError(res.status === 404 ? "not_found" : "fetch_failed")
           }
@@ -36,19 +49,31 @@ export function useAgentMetrics(agentId: string | undefined, range: MetricsRange
         const data = (await res.json()) as { metrics: AgentMetricsSnapshot }
         if (!cancelled) setMetrics(data.metrics)
       } catch {
-        if (!cancelled) {
+        if (!cancelled && initial) {
           setMetrics(null)
           setError("fetch_failed")
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && initial) setLoading(false)
       }
-    })()
+    }
+
+    void load(true)
+
+    if (pollMs > 0) {
+      const id = window.setInterval(() => {
+        void load(false)
+      }, pollMs)
+      return () => {
+        cancelled = true
+        window.clearInterval(id)
+      }
+    }
 
     return () => {
       cancelled = true
     }
-  }, [agentId, range])
+  }, [agentId, range, pollMs])
 
   return { metrics, loading, error }
 }

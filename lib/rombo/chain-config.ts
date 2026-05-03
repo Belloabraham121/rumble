@@ -36,3 +36,13 @@ export function chainIdFromSlug(slug: string): number | undefined {
 export function slugFromChainId(chainId: number): RomboChainSlug | undefined {
   return SLUG_BY_CHAIN_ID[chainId]
 }
+
+/** Short human label for dashboards (balances, funding copy). */
+export function chainDisplayName(chainId: number): string {
+  const slug = slugFromChainId(chainId)
+  if (slug === "base-sepolia") return "Base Sepolia"
+  if (slug === "base-mainnet") return "Base"
+  if (slug === "unichain-sepolia") return "Unichain Sepolia"
+  if (slug === "unichain-mainnet") return "Unichain"
+  return `Chain ${chainId}`
+}

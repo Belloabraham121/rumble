@@ -49,13 +49,13 @@ type GraphqlEnvelope<T> = {
   errors?: { message?: string }[]
 }
 
-async function postSubgraph<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const { uniswapV3SubgraphUrl } = getRomboServerEnv()
-  if (!uniswapV3SubgraphUrl) {
-    throw new Error("UNISWAP_V3_SUBGRAPH_URL is not configured.")
-  }
-
-  const res = await fetch(uniswapV3SubgraphUrl, {
+/** POST GraphQL to an explicit subgraph HTTP endpoint (used by env-default queries + `/api/data/subgraph`). */
+export async function postSubgraphAt<T>(
+  subgraphHttpUrl: string,
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<T> {
+  const res = await fetch(subgraphHttpUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ query, variables }),
@@ -80,6 +80,72 @@ async function postSubgraph<T>(query: string, variables: Record<string, unknown>
     throw new Error("Subgraph returned empty data.")
   }
   return parsed.data
+}
+
+async function postSubgraph<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+  const { uniswapV3SubgraphUrl } = getRomboServerEnv()
+  if (!uniswapV3SubgraphUrl) {
+    throw new Error("UNISWAP_V3_SUBGRAPH_URL is not configured.")
+  }
+
+  return postSubgraphAt<T>(uniswapV3SubgraphUrl, query, variables)
+}
+
+export type SubgraphEndpointMeta = {
+  block?: { number?: number; hash?: string }
+  deployment?: string
+  hasIndexingErrors?: boolean
+}
+
+export type SubgraphEndpointDetails = {
+  meta?: SubgraphEndpointMeta
+  /** Present on Uniswap V3–style subgraphs; omitted when schema has no `bundles`. */
+  bundleEthPriceUsd?: string
+  bundleProbeSkippedReason?: string
+}
+
+/**
+ * Lightweight health/discovery for a subgraph URL: `_meta` plus optional `bundles` ETH/USD probe.
+ */
+export async function fetchSubgraphEndpointDetails(subgraphHttpUrl: string): Promise<SubgraphEndpointDetails> {
+  const metaQuery = `
+    query SubgraphMeta {
+      _meta {
+        block { number hash }
+        deployment
+        hasIndexingErrors
+      }
+    }
+  `
+  const metaData = await postSubgraphAt<{ _meta?: SubgraphEndpointMeta }>(subgraphHttpUrl, metaQuery, {})
+  const meta = metaData._meta
+
+  let bundleEthPriceUsd: string | undefined
+  let bundleProbeSkippedReason: string | undefined
+  const bundleQuery = `
+    query BundleProbe {
+      bundles(first: 1) {
+        id
+        ethPriceUSD
+      }
+    }
+  `
+  try {
+    const bundleData = await postSubgraphAt<{ bundles?: { id?: string; ethPriceUSD?: string }[] }>(
+      subgraphHttpUrl,
+      bundleQuery,
+      {},
+    )
+    bundleEthPriceUsd = bundleData.bundles?.[0]?.ethPriceUSD ?? undefined
+  } catch (e) {
+    bundleProbeSkippedReason = e instanceof Error ? e.message.slice(0, 400) : String(e).slice(0, 400)
+  }
+
+  return {
+    meta,
+    bundleEthPriceUsd,
+    bundleProbeSkippedReason,
+  }
 }
 
 function mapPoolEntity(pool: {

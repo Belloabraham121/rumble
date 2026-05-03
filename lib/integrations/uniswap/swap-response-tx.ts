@@ -23,6 +23,38 @@ function asHexQuantity(n: string | number | undefined): string | number | undefi
   return s
 }
 
+/** Map a Liquidity API `TransactionRequest` or similar object to Privy broadcast shape. */
+export function mapTransactionRequestRecordToRombo(o: Record<string, unknown>): RomboUnsignedEthTx | null {
+  const to = typeof o.to === "string" ? o.to : undefined
+  const data = typeof o.data === "string" ? o.data : undefined
+  if (!to || !data?.startsWith("0x")) return null
+
+  const tx: RomboUnsignedEthTx = {
+    to,
+    data: data as `0x${string}`,
+    from: typeof o.from === "string" ? o.from : undefined,
+    value: asHexQuantity(o.value as string | number | undefined),
+    gas_limit: asHexQuantity((o.gasLimit ?? o.gas_limit) as string | number | undefined),
+    max_fee_per_gas: asHexQuantity((o.maxFeePerGas ?? o.max_fee_per_gas) as string | number | undefined),
+    max_priority_fee_per_gas: asHexQuantity(
+      (o.maxPriorityFeePerGas ?? o.max_priority_fee_per_gas) as string | number | undefined,
+    ),
+    nonce: asHexQuantity(o.nonce as string | number | undefined),
+    chain_id: asHexQuantity(
+      (typeof o.chainId === "string" || typeof o.chainId === "number"
+        ? o.chainId
+        : typeof o.chain_id === "string" || typeof o.chain_id === "number"
+          ? o.chain_id
+          : undefined) as string | number | undefined,
+    ),
+    type:
+      typeof o.type === "number" && (o.type === 0 || o.type === 1 || o.type === 2 || o.type === 4)
+        ? o.type
+        : undefined,
+  }
+  return tx
+}
+
 /** Best-effort pull an unsigned tx for Privy `eth_sendTransaction` from a `/swap` JSON body. */
 export function tryExtractUnsignedTxFromSwapResponse(root: unknown): RomboUnsignedEthTx | null {
   if (!root || typeof root !== "object") return null
@@ -43,34 +75,8 @@ export function tryExtractUnsignedTxFromSwapResponse(root: unknown): RomboUnsign
   for (const c of candidates) {
     if (!c || typeof c !== "object") continue
     const o = c as Record<string, unknown>
-    const to = typeof o.to === "string" ? o.to : undefined
-    const data = typeof o.data === "string" ? o.data : undefined
-    if (!to || !data?.startsWith("0x")) continue
-
-    const tx: RomboUnsignedEthTx = {
-      to,
-      data: data as `0x${string}`,
-      from: typeof o.from === "string" ? o.from : undefined,
-      value: asHexQuantity(o.value as string | number | undefined),
-      gas_limit: asHexQuantity((o.gasLimit ?? o.gas_limit) as string | number | undefined),
-      max_fee_per_gas: asHexQuantity((o.maxFeePerGas ?? o.max_fee_per_gas) as string | number | undefined),
-      max_priority_fee_per_gas: asHexQuantity(
-        (o.maxPriorityFeePerGas ?? o.max_priority_fee_per_gas) as string | number | undefined,
-      ),
-      nonce: asHexQuantity(o.nonce as string | number | undefined),
-      chain_id: asHexQuantity(
-        (typeof o.chainId === "string" || typeof o.chainId === "number"
-          ? o.chainId
-          : typeof o.chain_id === "string" || typeof o.chain_id === "number"
-            ? o.chain_id
-            : undefined) as string | number | undefined,
-      ),
-      type:
-        typeof o.type === "number" && (o.type === 0 || o.type === 1 || o.type === 2 || o.type === 4)
-          ? o.type
-          : undefined,
-    }
-    return tx
+    const tx = mapTransactionRequestRecordToRombo(o)
+    if (tx) return tx
   }
   return null
 }

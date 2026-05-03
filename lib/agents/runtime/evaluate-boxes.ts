@@ -3,6 +3,8 @@ import { getTradableArenaPools } from "@/lib/agents/arena-pools"
 import { chartCoordFromUsd } from "@/lib/agents/runtime/chart-coord"
 import type { AgentConfig } from "@/lib/agents/agent-types"
 import type { PriceBox } from "@/components/dashboard/types"
+import { resolveTradingTokenAddress } from "@/lib/integrations/uniswap/token-addresses"
+import { getArenaPoolOnChain } from "@/lib/trading/arena-pool-onchain"
 
 export type SwapArenaDirection = "token0_to_token1" | "token1_to_token0"
 
@@ -16,8 +18,24 @@ export type RuntimeDecision =
       /** ERC-20 / native amount in smallest units (decimal string). */
       amount: string
     }
-  | { type: "lp_increase"; arenaPoolId: ArenaPoolId; boxId: string; reason: string }
-  | { type: "lp_decrease"; arenaPoolId: ArenaPoolId; boxId: string; reason: string }
+  | {
+      type: "lp_increase"
+      arenaPoolId: ArenaPoolId
+      boxId: string
+      reason: string
+      chartLow: number
+      chartHigh: number
+      amountPercent?: string
+    }
+  | {
+      type: "lp_decrease"
+      arenaPoolId: ArenaPoolId
+      boxId: string
+      reason: string
+      chartLow: number
+      chartHigh: number
+      amountPercent?: string
+    }
 
 function parsePercent(s: string | undefined, fallback: number): number {
   const n = Number.parseFloat(String(s ?? "").replace("%", "").trim())
@@ -65,6 +83,31 @@ function defaultSwapDirection(arenaPoolId: ArenaPoolId): SwapArenaDirection {
   }
 }
 
+/**
+ * Uniswap `token0` / `token1` are sorted by address; the same logical pair (e.g. ETH→USDC)
+ * maps to `token0_to_token1` on one chain and `token1_to_token0` on another. Align
+ * `SwapArenaDirection` with `symbolsForSwap` + on-chain pool metadata.
+ */
+function swapDirectionForArena(arenaPoolId: ArenaPoolId, chainSlug: string): SwapArenaDirection {
+  const pool = getArenaPoolOnChain(arenaPoolId, chainSlug)
+  const { inSym, outSym } = symbolsForSwap(arenaPoolId)
+  if (!pool || !inSym || !outSym) {
+    return defaultSwapDirection(arenaPoolId)
+  }
+  const tokenInAddr = resolveTradingTokenAddress(chainSlug, inSym)
+  const tokenOutAddr = resolveTradingTokenAddress(chainSlug, outSym)
+  if (!tokenInAddr || !tokenOutAddr) {
+    return defaultSwapDirection(arenaPoolId)
+  }
+  const t0 = pool.token0.address.toLowerCase()
+  const t1 = pool.token1.address.toLowerCase()
+  const aIn = tokenInAddr.toLowerCase()
+  const aOut = tokenOutAddr.toLowerCase()
+  if (aIn === t0 && aOut === t1) return "token0_to_token1"
+  if (aIn === t1 && aOut === t0) return "token1_to_token0"
+  return defaultSwapDirection(arenaPoolId)
+}
+
 function symbolsForSwap(arenaPoolId: ArenaPoolId): { inSym: string; outSym: string } {
   switch (arenaPoolId) {
     case "eth-usdc":
@@ -91,7 +134,7 @@ function decimalsForArenaSwapInput(arenaPoolId: ArenaPoolId): number {
   }
 }
 
-function computeNotionalAmount(config: AgentConfig, box: PriceBox, arenaPoolId: ArenaPoolId): string {
+export function computeNotionalAmount(config: AgentConfig, box: PriceBox, arenaPoolId: ArenaPoolId): string {
   const bet = Number.parseFloat(config.betAmount) || 0
   const boxPct = parsePercent(box.amountPercent, 33) / 100
   const maxPos = parsePercent(config.maxPositionPercent, 25) / 100
@@ -126,13 +169,29 @@ export function decisionForMatchedBox(
         type: "swap",
         arenaPoolId,
         boxId: hit.id,
-        direction: defaultSwapDirection(arenaPoolId),
+        direction: swapDirectionForArena(arenaPoolId, config.chain),
         amount,
       }
     case "add_liquidity":
-      return { type: "lp_increase", arenaPoolId, boxId: hit.id, reason: "box_action" }
+      return {
+        type: "lp_increase",
+        arenaPoolId,
+        boxId: hit.id,
+        reason: "box_action",
+        chartLow: hit.low,
+        chartHigh: hit.high,
+        amountPercent: hit.amountPercent,
+      }
     case "remove_liquidity":
-      return { type: "lp_decrease", arenaPoolId, boxId: hit.id, reason: "box_action" }
+      return {
+        type: "lp_decrease",
+        arenaPoolId,
+        boxId: hit.id,
+        reason: "box_action",
+        chartLow: hit.low,
+        chartHigh: hit.high,
+        amountPercent: hit.amountPercent,
+      }
     default:
       return { type: "skip", reason: "unknown_box_action" }
   }

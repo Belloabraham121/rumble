@@ -41,8 +41,12 @@ export function DashboardMetrics({
       value: hasGasUsd ? fmtUsdPlain(gasUsd) : `${Math.round(gasGweiLegacy)} gwei`,
       sub: hasGasUsd ? "Σ gas · receipts · ETH spot" : "cumulative (legacy)",
     },
-    { label: "Actions", value: `${actions}`, sub: "OK Trading API calls" },
-    { label: "Win rate", value: `${(winRate * 100).toFixed(0)}%`, sub: "fills / (fills + skips)" },
+    { label: "Actions", value: `${actions}`, sub: "ticks with executed trades" },
+    {
+      label: "Win rate",
+      value: `${(winRate * 100).toFixed(0)}%`,
+      sub: "fills ÷ (fills + skips)",
+    },
   ]
 
   return (

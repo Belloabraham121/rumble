@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
+import { toast } from "sonner"
 import { SignOutButton } from "@/components/dashboard/sign-out-button"
 
 type Crumb = { label: string; href?: string }
@@ -19,12 +20,77 @@ type Props = {
   crumbs?: Crumb[]
 }
 
+type HeaderBalances = {
+  chainName: string
+  balanceEth: string
+  balanceUsdc: string
+}
+
 export function DashboardBrandBar({ userEmail, embeddedWalletAddress: initialWallet, crumbs }: Props) {
   const [wallet, setWallet] = useState<string | null>(initialWallet ?? null)
+  const [headerBalances, setHeaderBalances] = useState<HeaderBalances | null>(null)
 
   useEffect(() => {
     setWallet(initialWallet ?? null)
   }, [initialWallet])
+
+  const loadBalances = useCallback(async () => {
+    if (!wallet) {
+      setHeaderBalances(null)
+      return
+    }
+    try {
+      const r = await fetch("/api/auth/wallet-balances", {
+        credentials: "same-origin",
+        cache: "no-store",
+      })
+      const j = (await r.json()) as {
+        chainName?: string
+        balanceEth?: string
+        balanceUsdc?: string
+        chainId?: number
+        error?: string
+      }
+
+      const pickBal = (raw: unknown): string => {
+        if (raw == null) return "—"
+        if (typeof raw === "number" && Number.isFinite(raw)) return String(raw)
+        if (typeof raw === "string") return raw.length > 0 ? raw : "—"
+        return "—"
+      }
+
+      const chainName = j.chainName?.trim() || "Network"
+
+      // Always show a line under the address when the API explains the chain (incl. 502 body).
+      if (!r.ok && r.status === 404) {
+        setHeaderBalances(null)
+        return
+      }
+
+      setHeaderBalances({
+        chainName,
+        balanceEth: pickBal(j.balanceEth),
+        balanceUsdc: pickBal(j.balanceUsdc),
+      })
+    } catch {
+      setHeaderBalances(null)
+    }
+  }, [wallet])
+
+  useEffect(() => {
+    void loadBalances()
+    if (!wallet) return
+    const id = window.setInterval(() => void loadBalances(), 25_000)
+    return () => window.clearInterval(id)
+  }, [wallet, loadBalances])
+
+  const copyWallet = useCallback(() => {
+    if (!wallet) return
+    void navigator.clipboard.writeText(wallet).then(
+      () => toast.success("Wallet address copied"),
+      () => toast.error("Could not copy address"),
+    )
+  }, [wallet])
 
   /** Poll briefly after registration so the embedded address appears without full page reload. */
   useEffect(() => {
@@ -80,6 +146,12 @@ export function DashboardBrandBar({ userEmail, embeddedWalletAddress: initialWal
         >
           Transactions
         </Link>
+        <Link
+          href="/dashboard/liquidity-lab"
+          className="hidden md:inline-flex text-[10px] tracking-[0.18em] uppercase px-3 py-2 rounded-xl border border-black/10 bg-white/80 text-black/55 hover:text-black hover:bg-white transition-colors shadow-[0_4px_16px_rgba(0,0,0,0.04)]"
+        >
+          Liquidity lab
+        </Link>
       </div>
 
       <nav className="flex-1 min-w-0 flex items-center gap-2 overflow-hidden text-[11px] text-black/50">
@@ -102,12 +174,24 @@ export function DashboardBrandBar({ userEmail, embeddedWalletAddress: initialWal
 
       <div className="shrink-0 flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
         {wallet && (
-          <span
-            className="hidden md:inline font-mono text-[10px] text-black/50 bg-white/80 border border-black/10 px-2 py-1 rounded-lg max-w-[min(100vw-12rem,220px)] truncate"
-            title={wallet}
+          <button
+            type="button"
+            onClick={copyWallet}
+            title={`${wallet} — click to copy`}
+            className="flex flex-col items-end gap-0.5 font-mono text-left text-[10px] text-black/50 bg-white/80 border border-black/10 px-2.5 py-1.5 rounded-lg max-w-[min(100vw-12rem,260px)] hover:bg-white hover:border-black/18 transition-colors"
           >
-            {shortenAddr(wallet)}
-          </span>
+            <span className="w-full truncate text-black/65">{shortenAddr(wallet)}</span>
+            {headerBalances ? (
+              <>
+                <span className="w-full text-[9px] font-sans tracking-wide text-black/40">{headerBalances.chainName}</span>
+                <span className="w-full tabular-nums text-[9px] text-black/55">
+                  ETH {headerBalances.balanceEth} · USDC {headerBalances.balanceUsdc}
+                </span>
+              </>
+            ) : (
+              <span className="w-full text-[9px] font-sans text-black/35">Loading balances…</span>
+            )}
+          </button>
         )}
         {userEmail && (
           <span className="hidden sm:inline text-[11px] text-black/45 truncate max-w-[180px]" title={userEmail}>

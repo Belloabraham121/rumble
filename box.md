@@ -1,56 +1,60 @@
 # Rombo – Boxes Implementation Guide
 
 **Project**: Rombo – Autonomous Uniswap Agent Arena  
-**Version**: 1.0 (ETHGlobal Open Agents 2026)
+**Version**: 1.1 (ETHGlobal Open Agents 2026)
 
 ## What Are Boxes?
 
-**Boxes** are the core mechanic of Rombo.  
-A **box** = a price range `[low, high]` that the agent (or user) defines on the live price chart.
+**Boxes** are the core mechanic of Rombo.
 
-When the live price **hits or enters** a box, the agent automatically triggers a predefined action:
+A **box** is a **price band** `[low, high]` on the live chart **plus** an **action** the agent should take when spot enters that band. The band is stored in the **same coordinate space** as the chart (aligned with how spot USD maps into coordinates — see `chartCoordFromUsd` / pool sim in code).
 
-- Swap
-- Add liquidity
-- Remove liquidity
+A box is **not** only “add liquidity between two prices.” Depending on `action`, it can mean:
 
-This creates the gamified “arrow hits box → instant execution” experience you wanted.
+| Action               | What the box represents (conceptually)                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **swap**             | _If price is in this band at trigger time, execute a swap_ sized by policy — edge comes from **timing**, route, pool fees, and slippage.                            |
+| **add_liquidity**    | _If price enters this band, deploy liquidity in that range_ — edge comes from **fee capture** while price stays in range, fee tier, and competition from other LPs. |
+| **remove_liquidity** | _If price enters this band, trim or exit a position_ — edge comes from **risk off**, IL reduction, or reallocating capital.                                         |
 
-## Boxes with Multipliers (Your Question)
+So one visual rectangle can encode **different economic intents**: “profit from a swap here,” “profit from LP fees here,” “protect capital here.” The dashboard still shows **arrow hits box → execution** for all of them.
 
-**Yes — different boxes can (and should) have different multipliers.**
+## Multipliers (why one box says 1.2x and another 2.0x)
 
-### What is a Multiplier?
+**Different boxes should carry different multipliers** because they imply **different risk, capital intensity, and expected reward** — not every band is equally attractive once **real pool activity** is considered.
 
-- The **multiplier** is a number (e.g., 1.2x, 1.8x, 3.0x) that represents **how much extra profit/fee yield** the agent expects to earn if the price stays inside that box.
-- It is **directly tied to Uniswap v3 concentrated liquidity math**:
-  - **Tighter box** (narrow price range) → **higher multiplier** (your capital becomes “thicker” → you earn more fees per dollar deployed).
-  - **Wider box** → lower multiplier (safer but less efficient).
+### Design principle (product + economics)
 
-This is real Uniswap v3 behavior (not fake gamification):
+- Multipliers should reflect **reward potential conditioned on live market structure**, not only “narrow band = big number” in isolation.
+- **Authoritative inputs** include:
+  - **Band geometry**: width of `[low, high]` vs spot (same coordinate system as quote).
+  - **Pool identity**: fee tier, pair — same geometric width has **different economics** on 0.01% vs 0.05% vs 0.3% pools.
+  - **Market data (subgraph / indexing)**: volume, fees, liquidity, tick / price proximity — **activity in and around the pool** informs whether a band is likely to earn fees or capture swap edge **now**.
+  - **Guards**: caps, minimum observation windows, gas-aware dampeners so extremes don’t create unlimited liability for the product.
 
-- Uniswap v3 gives you up to **4000x capital efficiency** compared to v2 when you concentrate liquidity in a tight range.
-- Narrower range = higher effective fee multiplier because almost all trading volume in that range uses **your** liquidity.
+So: **subgraph-backed signals are the right place to ground multipliers** — fills, pool aggregates, and (where the schema allows) tick- or time-windowed stats — combined with **your box definition** and **fee tier truth** (label + on-chain pool metadata where verified).
 
-### How a Multiplier Helps the Agent Make More Profit
+Geometry-only scores are useful for **UX consistency** early on; **economically grounded** scores use **pool + subgraph** so the arena isn’t mispriced vs actual flow.
 
-When the price hits a box:
+### Connection to Uniswap v3 intuition
 
-1. Agent triggers **addLiquidity** in that exact range.
-2. The narrower the box → the higher the multiplier → the more fees the agent earns **per unit of capital** while price stays inside.
-3. Result: Same amount of tokens → much higher PNL.
+- **Concentrated liquidity**: tighter **correctly placed** ranges can earn more fees **per unit of capital** _when volume crosses that range_.
+- That only holds if **trades actually hit your ticks** — hence volume / activity matter as much as narrow width.
 
-**Example** (ETH/USDC pool, 0.3% fee tier):
+### Example (illustrative)
 
-- Box A (wide): $2,400 – $2,600 → multiplier ≈ **1.0x** (safe, but low earnings)
-- Box B (tight): $2,480 – $2,520 → multiplier ≈ **3.5x** (higher risk, but 3.5× more fees while price is inside)
+Pool ETH/USDC, 0.05% tier:
 
-If price stays in Box B for the same time as Box A, the agent earns **3.5× more trading fees** with the same capital.  
-That is how the agent “makes more profit” when price hits a high-multiplier box.
+- **Box A** (wide band, quiet subgraph window): lower multiplier — safer, less fee throughput expected.
+- **Box B** (tighter band **and** strong recent volume near current tick): higher multiplier — higher **conditional** fee yield story.
+
+Exact numbers come from your **formula + caps**, fed by subgraph aggregates and band mapping — not from a single fixed table.
 
 ## How Boxes Are Implemented (Technical Details)
 
-### 1. Box Data Structure (Stored in PostgreSQL + Agent Memory)
+### 1. Box data shape (agent memory / Mongo)
+
+Persisted boxes align with the dashboard schema (`PriceBox`): `low`, `high`, `action`, `amountPercent`, labels, etc. Optional persisted `multiplier` may be denormalized for display; **authoritative** runtime multipliers may be **recomputed** when resolving a tick using **spot + pool + subgraph inputs**.
 
 ```json
 {
@@ -59,11 +63,11 @@ That is how the agent “makes more profit” when price hits a high-multiplier 
   "version": "1.1.0",
   "low": 2480.5,
   "high": 2520.75,
-  "action": "addLiquidity", // or "swap" or "removeLiquidity"
-  "amountPercent": 35, // % of current capital to use
-  "multiplier": 3.2, // auto-calculated or user-set
-  "status": "active", // active / triggered / completed
+  "action": "add_liquidity",
+  "amountPercent": 35,
+  "multiplier": 3.2,
+  "status": "active",
   "createdAt": "2026-05-02T21:00:00Z",
-  "reason": "tight range around current price"
+  "reason": "tight band with high recent volume near spot (see subgraph window)"
 }
 ```

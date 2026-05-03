@@ -180,12 +180,71 @@ export function migrateAgentConfig(partial: Partial<AgentConfig> & Record<string
 
   delete (merged as Record<string, unknown>).runtimeBoxesLive
 
+  const VALID_CHAINS: AgentConfig["chain"][] = [
+    "base-sepolia",
+    "base-mainnet",
+    "unichain-sepolia",
+    "unichain-mainnet",
+  ]
+  if (!VALID_CHAINS.includes(merged.chain as AgentConfig["chain"])) {
+    merged.chain = DEFAULT_AGENT_CONFIG.chain
+  }
+
+  const clampStr = (raw: string, min: number, max: number, fallback: string): string => {
+    const n = Number.parseFloat(String(raw).trim())
+    if (!Number.isFinite(n)) return fallback
+    return String(Math.min(max, Math.max(min, n)))
+  }
+
+  merged.capital = clampStr(merged.capital, 0, 1e12, DEFAULT_AGENT_CONFIG.capital)
+  merged.slippage = clampStr(merged.slippage, 0, 50, DEFAULT_AGENT_CONFIG.slippage)
+  merged.gasCap = clampStr(merged.gasCap, 1, 5000, DEFAULT_AGENT_CONFIG.gasCap)
+  merged.maxPositionPercent = clampStr(merged.maxPositionPercent, 1, 100, DEFAULT_AGENT_CONFIG.maxPositionPercent)
+  merged.betAmount = clampStr(merged.betAmount, 0, 1000, DEFAULT_AGENT_CONFIG.betAmount)
+  merged.reflectionFrequencyTrades = clampStr(
+    merged.reflectionFrequencyTrades,
+    1,
+    10_000,
+    DEFAULT_AGENT_CONFIG.reflectionFrequencyTrades,
+  )
+
+  if (!merged.approvedTokens?.trim()) {
+    merged.approvedTokens = DEFAULT_AGENT_CONFIG.approvedTokens
+  }
+  if (!merged.name?.trim()) {
+    merged.name = DEFAULT_AGENT_CONFIG.name
+  }
+  if (!merged.version?.trim()) {
+    merged.version = DEFAULT_AGENT_CONFIG.version
+  }
+  if (!(["conservative", "balanced", "aggressive"] as const).includes(merged.riskLevel)) {
+    merged.riskLevel = DEFAULT_AGENT_CONFIG.riskLevel
+  }
+  if (!(["light", "standard", "deep"] as const).includes(merged.reflectionDepth)) {
+    merged.reflectionDepth = DEFAULT_AGENT_CONFIG.reflectionDepth
+  }
+  if (merged.goal.length > 8000) {
+    merged.goal = merged.goal.slice(0, 8000)
+  }
+  if (merged.fundingNotes.length > 2000) {
+    merged.fundingNotes = merged.fundingNotes.slice(0, 2000)
+  }
+
   return merged
 }
 
 export function migratePriceBox(b: PriceBox): PriceBox {
+  let low = Number.isFinite(b.low) ? b.low : 50
+  let high = Number.isFinite(b.high) ? b.high : 55
+  if (low > high) {
+    const t = low
+    low = high
+    high = t
+  }
   return {
     ...b,
+    low,
+    high,
     amountPercent: b.amountPercent ?? "33",
   }
 }

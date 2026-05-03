@@ -102,8 +102,13 @@ export function buildAgentQuoteRequestBody(input: BuildAgentQuoteBodyInput): Rec
     body.slippageTolerance = slippageTolerance
   }
 
-  if (input.protocols?.length) {
+  /* Default to AMM pool routing only. Omitting `protocols` lets the API consider
+   * UniswapX (UNISWAPX_*) on L2, which enforces high minimum trade sizes — small
+   * agent notionals then return 404 "no quotes". */
+  if (input.protocols && input.protocols.length > 0) {
     body.protocols = input.protocols
+  } else {
+    body.protocols = ["V2", "V3", "V4"]
   }
 
   return body

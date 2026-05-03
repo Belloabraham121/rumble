@@ -52,6 +52,8 @@ export {
   extractSwapCalldataHex,
 } from "./quote-metadata"
 export {
+  postSubgraphAt,
+  fetchSubgraphEndpointDetails,
   fetchV3PoolStatsByAddress,
   fetchV3PoolStatsByPair,
   fetchV3PoolSpotByAddress,
@@ -61,4 +63,6 @@ export {
   type SubgraphPoolSpot,
   type SubgraphPoolCandle,
   type SubgraphCandleGranularity,
+  type SubgraphEndpointDetails,
+  type SubgraphEndpointMeta,
 } from "./subgraph"

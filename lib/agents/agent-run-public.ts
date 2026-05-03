@@ -17,7 +17,7 @@ export type AgentRunPublic = {
 }
 
 function arenaOutcomeFromDecision(d: AgentRunDecision): ArenaOutcomeKind {
-  if (d === "swap") return "hit"
+  if (d === "swap" || d === "lp_increase" || d === "lp_decrease") return "hit"
   if (d === "error") return "error"
   return "skip"
 }
@@ -35,7 +35,11 @@ function numDetail(d: AgentRunDoc["detail"], key: string): number | undefined {
 
 export function agentRunToPublic(run: AgentRunDoc): AgentRunPublic {
   const d = run.detail
-  const mult = numDetail(d, "arenaMult") ?? (run.decision === "swap" ? 2 : 1)
+  const mult =
+    numDetail(d, "arenaMult") ??
+    (run.decision === "swap" || run.decision === "lp_increase" || run.decision === "lp_decrease"
+      ? 2
+      : 1)
   const payoutEth = numDetail(d, "arenaPayoutEth") ?? 0
   return {
     id: run._id.toHexString(),

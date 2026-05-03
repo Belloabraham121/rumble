@@ -45,12 +45,20 @@ type Props = {
   onExpand?: () => void
   /** Compact is the inline module variant; lg is for the modal view. */
   variant?: "compact" | "lg"
+  /** Agent is running — show Live badge and tail polling. */
+  live?: boolean
 }
 
 /** Pixels from bottom to still count as "following" the live tail. */
 const STICK_THRESHOLD_PX = 72
 
-export function DashboardActivityFeed({ events, highlightId, onExpand, variant = "compact" }: Props) {
+export function DashboardActivityFeed({
+  events,
+  highlightId,
+  onExpand,
+  variant = "compact",
+  live = false,
+}: Props) {
   const lg = variant === "lg"
   const listRef = useRef<HTMLUListElement>(null)
   /** True while the user is pinned near the bottom; false after they scroll up to read history. */
@@ -95,8 +103,24 @@ export function DashboardActivityFeed({ events, highlightId, onExpand, variant =
   return (
     <div className="relative flex flex-col h-full min-h-0 rounded-2xl border border-black/[0.07] bg-[#fafaf8]/95 shadow-[0_8px_28px_rgba(0,0,0,0.05)] overflow-hidden">
       <div className="shrink-0 px-3 py-2 border-b border-black/[0.06] bg-white/80 flex items-center justify-between gap-2">
-        <div>
-          <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">Execution log</p>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">Execution log</p>
+            {live && (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5"
+                title="Agent is running — log refreshes in real time"
+              >
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-40" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                </span>
+                <span className="font-pixel text-[7px] tracking-[0.18em] text-emerald-800 uppercase">
+                  Live
+                </span>
+              </span>
+            )}
+          </div>
           <p className="text-[10px] text-black/35 mt-0.5">Swaps · liquidity · claims · misses</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">

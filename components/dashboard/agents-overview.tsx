@@ -12,8 +12,15 @@ import type { AgentConfig, AgentStatus } from "@/lib/agents/agent-types";
 
 export function AgentsOverview() {
   const router = useRouter();
-  const { agents, ready, createAgent, removeAgent, setStatus } =
-    useAgentsStore();
+  const {
+    agents,
+    ready,
+    createAgent,
+    removeAgent,
+    setStatus,
+    agentsHydrationIssue,
+    backendHydrated,
+  } = useAgentsStore();
   const [creatingOpen, setCreatingOpen] = useState(false);
   const [overview, setOverview] = useState<DashboardOverviewMetrics | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
@@ -120,6 +127,40 @@ export function AgentsOverview() {
         overviewLoading={overviewLoading}
         overviewReady={overviewReady}
       />
+
+      {backendHydrated && agentsHydrationIssue === "mongo" && (
+        <div
+          className="rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-3 text-[12px] text-amber-950/90 shadow-[0_6px_24px_rgba(0,0,0,0.05)]"
+          role="status"
+        >
+          <p className="font-pixel text-[9px] tracking-[0.15em] text-amber-900/70 uppercase">
+            Database not connected
+          </p>
+          <p className="mt-1 text-black/75 leading-relaxed">
+            The API returned <strong className="font-medium">MongoDB is not configured</strong>.
+            Agent rows and ticks cannot persist — set{" "}
+            <code className="rounded bg-black/[0.06] px-1 py-0.5 font-mono text-[11px]">
+              MONGODB_URI
+            </code>{" "}
+            in <code className="rounded bg-black/[0.06] px-1 py-0.5 font-mono text-[11px]">.env.local</code>,
+            restart <code className="font-mono text-[11px]">npm run dev</code>, then refresh this page.
+          </p>
+        </div>
+      )}
+
+      {backendHydrated && agentsHydrationIssue === "auth" && (
+        <div
+          className="rounded-2xl border border-black/12 bg-white px-4 py-3 text-[12px] text-black/70 shadow-[0_6px_24px_rgba(0,0,0,0.05)]"
+          role="status"
+        >
+          <p className="font-pixel text-[9px] tracking-[0.15em] text-black/45 uppercase">
+            Session required
+          </p>
+          <p className="mt-1 leading-relaxed">
+            Sign in to load agents from the server. Until then you only see agents stored in this browser.
+          </p>
+        </div>
+      )}
 
       {!ready ? (
         <div className="py-12 text-center text-[12px] text-black/40">

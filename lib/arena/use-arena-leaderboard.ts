@@ -31,6 +31,8 @@ export function useArenaLeaderboard(input: {
   /** Ensures this agent appears when outside the top slice (optional). */
   highlightAgentId?: string
   limit?: number
+  /** When set, re-fetches the board on an interval (background refresh, no extra loading flash). */
+  refreshIntervalMs?: number
 }): UseArenaLeaderboardResult {
   const [agents, setAgents] = useState<ArenaAgentRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -51,6 +53,8 @@ export function useArenaLeaderboard(input: {
     return u.toString()
   }, [input.arenaPoolId, input.chainId, input.highlightAgentId, input.limit])
 
+  const refreshIntervalMs = input.refreshIntervalMs ?? 0
+
   useEffect(() => {
     if (!input.arenaPoolId || !qs) {
       setAgents([])
@@ -61,16 +65,18 @@ export function useArenaLeaderboard(input: {
     }
 
     let cancelled = false
-    setLoading(true)
-    setError(null)
 
-    void (async () => {
+    async function load(initial: boolean) {
+      if (initial) {
+        setLoading(true)
+        setError(null)
+      }
       try {
         const res = await fetch(`/api/arena/leaderboard?${qs}`, {
           credentials: "same-origin",
         })
         if (!res.ok) {
-          if (!cancelled) {
+          if (!cancelled && initial) {
             setAgents([])
             setError(res.status === 503 ? "unavailable" : "fetch_failed")
           }
@@ -85,19 +91,32 @@ export function useArenaLeaderboard(input: {
           setRefreshedAt(data.updatedAt ?? null)
         }
       } catch {
-        if (!cancelled) {
+        if (!cancelled && initial) {
           setAgents([])
           setError("fetch_failed")
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && initial) setLoading(false)
       }
-    })()
+    }
+
+    void load(true)
+
+    if (refreshIntervalMs <= 0) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const intervalId = window.setInterval(() => {
+      void load(false)
+    }, refreshIntervalMs)
 
     return () => {
       cancelled = true
+      window.clearInterval(intervalId)
     }
-  }, [input.arenaPoolId, qs])
+  }, [input.arenaPoolId, qs, refreshIntervalMs])
 
   return { agents, loading, error, refreshedAt }
 }

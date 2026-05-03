@@ -14,6 +14,7 @@ import { useAgent, useAgentsStore } from "@/lib/agents/agents-store";
 import { useAgentActivity } from "@/lib/agents/use-agent-activity";
 import type { MetricsRange } from "@/lib/agents/metrics-types";
 import { useAgentMetrics } from "@/lib/agents/use-agent-metrics";
+import { useAgentTickWhileRunning } from "@/lib/agents/use-agent-tick-while-running";
 import type { PriceBox } from "@/components/dashboard/types";
 import type { AgentConfig } from "@/lib/agents/agent-types";
 import {
@@ -52,13 +53,29 @@ function formatArenaQuote(poolId: string, usd: number): string {
 
 export function DashboardWorkspace({ agentId }: Props) {
   const agent = useAgent(agentId);
-  const { events: activity } = useAgentActivity(agentId);
+  const agentRunning = agent?.status === "running";
   const [metricsRange, setMetricsRange] = useState<MetricsRange>("all");
+  const activityPollMs = agentRunning ? 3500 : 12_000;
+  const { events: activity, reload: reloadActivity } = useAgentActivity(
+    agentId,
+    activityPollMs,
+  );
   const { metrics: agentMetrics, loading: metricsLoading } = useAgentMetrics(
     agentId,
     metricsRange,
+    { pollMs: agentRunning ? 4500 : 0 },
   );
   const { updateConfig, updateBoxes, setStatus, ready } = useAgentsStore();
+
+  const wasRunningRef = useRef(false);
+  useEffect(() => {
+    if (agentRunning && !wasRunningRef.current) void reloadActivity();
+    wasRunningRef.current = agentRunning;
+  }, [agentRunning, reloadActivity]);
+
+  /** Local dev + open dashboard: drive server ticks (Vercel cron does not run in `next dev`). */
+  useAgentTickWhileRunning(agentId, agentRunning);
+
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [livePrice, setLivePrice] = useState(2306.94);
   const [committedChartPoolId, setCommittedChartPoolId] =
@@ -151,6 +168,7 @@ export function DashboardWorkspace({ agentId }: Props) {
       chainId: arenaChainId,
       highlightAgentId: agentId,
       limit: 20,
+      refreshIntervalMs: agentRunning ? 6000 : 15_000,
     });
 
   const arenaFlash = useAgentArenaFlash(agentId, livePoolId);
@@ -180,7 +198,9 @@ export function DashboardWorkspace({ agentId }: Props) {
     ARENA_POOL_BY_ID[livePoolId]?.livePairTag ?? "ETH / USDC";
 
   /** Single-pool hook drives the chart head; `/api/data/pools` fills the trio strip. */
-  const livePriceHook = usePoolLivePrice(livePoolId, { intervalMs: 6000 });
+  const livePriceHook = usePoolLivePrice(livePoolId, {
+    intervalMs: agentRunning ? 4000 : 6000,
+  });
 
   /** Hold last non-zero poll so the chart trail does not vanish on transient 503 / zero parses. */
   const lastGoodChartUsdRef = useRef<number | null>(null);
@@ -201,7 +221,32 @@ export function DashboardWorkspace({ agentId }: Props) {
     granularity: "minute",
     limit: 120,
   });
-  const poolsListHook = usePoolsList(6000);
+  const poolsListHook = usePoolsList(agentRunning ? 4000 : 8000);
+
+  const basePoolActivity = useMemo(() => {
+    const row = poolsListHook.data?.pools.find(
+      (p) => p.arenaPoolId === committedChartPoolId,
+    );
+    if (!row) return null;
+    return {
+      volumeUsd24h: row.volumeUsd24h,
+      feesUsd24h: row.feesUsd24h,
+      totalValueLockedUsd: row.totalValueLockedUsd,
+    };
+  }, [poolsListHook.data?.pools, committedChartPoolId]);
+
+  const overlayPoolActivity = useMemo(() => {
+    if (!overlayChartPoolId) return null;
+    const row = poolsListHook.data?.pools.find(
+      (p) => p.arenaPoolId === overlayChartPoolId,
+    );
+    if (!row) return null;
+    return {
+      volumeUsd24h: row.volumeUsd24h,
+      feesUsd24h: row.feesUsd24h,
+      totalValueLockedUsd: row.totalValueLockedUsd,
+    };
+  }, [poolsListHook.data?.pools, overlayChartPoolId]);
 
   const liveSeedCloses = useMemo(() => {
     if (!candlesHook.ready || candlesHook.candles.length === 0) return undefined;
@@ -324,6 +369,7 @@ export function DashboardWorkspace({ agentId }: Props) {
                   liveSeedUsdPrices={
                     overlayChartPoolId ? undefined : liveSeedCloses
                   }
+                  poolActivity={basePoolActivity}
                 />
               </div>
               {overlayChartPoolId && (
@@ -348,6 +394,7 @@ export function DashboardWorkspace({ agentId }: Props) {
                     }
                     liveUsdPrice={chartLiveUsd}
                     liveSeedUsdPrices={overlaySeedCloses}
+                    poolActivity={overlayPoolActivity}
                   />
                 </div>
               )}
@@ -492,6 +539,7 @@ export function DashboardWorkspace({ agentId }: Props) {
                 events={activity}
                 highlightId={highlightId}
                 onExpand={() => setLogExpanded(true)}
+                live={agentRunning}
               />
             </div>
             <div className="lg:col-span-4 flex flex-col gap-2 min-h-0">
@@ -562,6 +610,7 @@ export function DashboardWorkspace({ agentId }: Props) {
           events={activity}
           highlightId={highlightId}
           variant="lg"
+          live={agentRunning}
         />
       </ExpandedModule>
 
