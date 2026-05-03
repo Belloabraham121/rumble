@@ -33,34 +33,42 @@ export function mapLabUnsignedTx(o: Record<string, unknown>): LabUnsignedTx | nu
 }
 
 function mapTx(o: Record<string, unknown>): LabUnsignedTx | null {
-  const to = typeof o.to === "string" ? (o.to as Address) : undefined
-  const data = typeof o.data === "string" ? (o.data as Hex) : undefined
+  /** The Uniswap LP API's `/lp/check_approval` wraps each entry in `transactions[]` as
+   * `{ transaction: TransactionRequest, cancelApproval, action }`. Top-level shapes elsewhere
+   * (e.g. `lpJson.create` / `lpJson.poolCreation`) are flat. Unwrap defensively so both work.
+   * Proven in debug-454cbc.log line 3: `firstRawKeys:["transaction","cancelApproval","action"]`. */
+  const inner =
+    o && typeof o.transaction === "object" && o.transaction !== null
+      ? (o.transaction as Record<string, unknown>)
+      : o
+  const to = typeof inner.to === "string" ? (inner.to as Address) : undefined
+  const data = typeof inner.data === "string" ? (inner.data as Hex) : undefined
   if (!to || !data?.startsWith("0x")) return null
 
-  const gasRaw = (o.gasLimit ?? o.gas_limit ?? o.gas) as string | number | undefined
-  const valueRaw = o.value as string | number | undefined
+  const gasRaw = (inner.gasLimit ?? inner.gas_limit ?? inner.gas) as string | number | undefined
+  const valueRaw = inner.value as string | number | undefined
 
   return {
     to,
     data,
-    from: typeof o.from === "string" ? (o.from as Address) : undefined,
+    from: typeof inner.from === "string" ? (inner.from as Address) : undefined,
     value: hexQty(valueRaw),
     gas: hexQty(gasRaw as string | number | undefined),
-    maxFeePerGas: hexQty((o.maxFeePerGas ?? o.max_fee_per_gas) as string | number | undefined),
+    maxFeePerGas: hexQty((inner.maxFeePerGas ?? inner.max_fee_per_gas) as string | number | undefined),
     maxPriorityFeePerGas: hexQty(
-      (o.maxPriorityFeePerGas ?? o.max_priority_fee_per_gas) as string | number | undefined,
+      (inner.maxPriorityFeePerGas ?? inner.max_priority_fee_per_gas) as string | number | undefined,
     ),
     nonce:
-      typeof o.nonce === "number"
-        ? o.nonce
-        : typeof o.nonce === "string"
-          ? Number.parseInt(o.nonce, 10)
+      typeof inner.nonce === "number"
+        ? inner.nonce
+        : typeof inner.nonce === "string"
+          ? Number.parseInt(inner.nonce, 10)
           : undefined,
     chainId:
-      typeof o.chainId === "number"
-        ? o.chainId
-        : typeof o.chain_id === "number"
-          ? o.chain_id
+      typeof inner.chainId === "number"
+        ? inner.chainId
+        : typeof inner.chain_id === "number"
+          ? inner.chain_id
           : undefined,
   }
 }

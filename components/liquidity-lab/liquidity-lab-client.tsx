@@ -11,6 +11,45 @@ import {
   useWalletClient,
 } from "wagmi"
 import { isAddress, parseAbi, parseUnits, type Address, type Hex } from "viem"
+
+// #region agent log
+/** Debug-mode HTTP instrumentation — sends NDJSON entries to the local debug ingest server.
+ * Safe-stringifies BigInt and circular structures. No-op outside the browser; never throws. */
+function __labDebugLog(input: { hypothesisId: string; location: string; message: string; data?: unknown }): void {
+  if (typeof window === "undefined") return
+  try {
+    const safe = (value: unknown): unknown => {
+      const seen = new WeakSet<object>()
+      return JSON.parse(
+        JSON.stringify(value, (_k, v) => {
+          if (typeof v === "bigint") return `${v.toString()}n`
+          if (v && typeof v === "object") {
+            if (seen.has(v as object)) return "[circular]"
+            seen.add(v as object)
+          }
+          if (typeof v === "function") return "[function]"
+          return v
+        }),
+      )
+    }
+    fetch("http://127.0.0.1:7616/ingest/4e957d81-cec5-4b9e-97ed-87fc67721398", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "454cbc" },
+      body: JSON.stringify({
+        sessionId: "454cbc",
+        runId: "lp-permit",
+        hypothesisId: input.hypothesisId,
+        location: input.location,
+        message: input.message,
+        data: safe(input.data),
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {})
+  } catch {
+    /* never let logging break the lab */
+  }
+}
+// #endregion
 import { toast } from "sonner"
 import { base, baseSepolia } from "wagmi/chains"
 import type { Chain, PublicClient, WalletClient } from "viem"
@@ -71,8 +110,70 @@ function pickEip712PrimaryType(types: Record<string, unknown>): string {
   return "PermitBatch"
 }
 
+type Eip712Field = { name: string; type: string }
+
+function readFieldArray(value: unknown): Eip712Field[] {
+  if (!Array.isArray(value)) return []
+  const fields: Eip712Field[] = []
+  for (const item of value) {
+    if (
+      item &&
+      typeof item === "object" &&
+      typeof (item as { name?: unknown }).name === "string" &&
+      typeof (item as { type?: unknown }).type === "string"
+    ) {
+      fields.push({
+        name: (item as { name: string }).name,
+        type: (item as { type: string }).type,
+      })
+    }
+  }
+  return fields
+}
+
+/**
+ * Coerce an EIP-712 `types` map into viem's `Record<string, {name,type}[]>` shape, defensively.
+ * Drops `EIP712Domain` (viem auto-generates it from `domain`), and supports each of these
+ * shapes returned by various Uniswap serializers + community tooling:
+ *  - array form: `{ PermitBatch: [{ name, type }, ...] }`                 ← viem-native
+ *  - wrapped form: `{ PermitBatch: { fields: [{ name, type }, ...] } }`   ← Uniswap Liquidity API
+ *  - record form: `{ PermitBatch: { details: "PermitDetails[]", ... } }`  ← occasional gateway shape
+ *
+ * viem's `validateTypedData` does `for (const p of types[T])`; any non-array value at `types[T]`
+ * trips the historic "struct is not iterable" runtime error.
+ */
+function normalizeTypedDataTypes(raw: unknown): Record<string, Eip712Field[]> {
+  if (!raw || typeof raw !== "object") return {}
+  const out: Record<string, Eip712Field[]> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (key === "EIP712Domain") continue
+    /** Array form. */
+    if (Array.isArray(value)) {
+      const fields = readFieldArray(value)
+      if (fields.length) out[key] = fields
+      continue
+    }
+    if (value && typeof value === "object") {
+      /** Wrapped form: `{ fields: [{name,type}, ...] }` (Uniswap LP API). */
+      const wrapped = readFieldArray((value as { fields?: unknown }).fields)
+      if (wrapped.length) {
+        out[key] = wrapped
+        continue
+      }
+      /** Record form: `{ fieldName: "fieldType", ... }`. */
+      const fields: Eip712Field[] = []
+      for (const [name, type] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof type === "string") fields.push({ name, type })
+      }
+      if (fields.length) out[key] = fields
+    }
+  }
+  return out
+}
+
 type LpV4Permit = {
   domain: Record<string, unknown>
+  /** Permissive — may be the API's wrapped form or viem's array form (we forward as-is to /lp/create). */
   types: Record<string, unknown>
   values: Record<string, unknown>
   primaryType?: string
@@ -96,6 +197,23 @@ async function prepareLpV4ApprovalsAndPermit(input: {
 }): Promise<{ batchPermitData?: LpV4Permit; signature?: Hex }> {
   const { walletClient, publicClient, address, chain, chainId, lpTokens, action } = input
 
+  // #region agent log
+  __labDebugLog({
+    hypothesisId: "H3",
+    location: "liquidity-lab-client.tsx:prepareLpV4ApprovalsAndPermit#entry",
+    message: "prepareLpV4ApprovalsAndPermit entered",
+    data: {
+      chainIdArg: chainId,
+      walletClientChainId: (walletClient as unknown as { chain?: { id?: number } }).chain?.id,
+      walletClientChainName: (walletClient as unknown as { chain?: { name?: string } }).chain?.name,
+      passedChainId: (chain as unknown as { id?: number }).id,
+      passedChainName: (chain as unknown as { name?: string }).name,
+      lpTokens,
+      action,
+    },
+  })
+  // #endregion
+
   const checkRes = await fetch("/api/liquidity/check-approval", {
     method: "POST",
     credentials: "same-origin",
@@ -115,6 +233,20 @@ async function prepareLpV4ApprovalsAndPermit(input: {
     throw new Error(err)
   }
 
+  // #region agent log
+  __labDebugLog({
+    hypothesisId: "H1,H2,H5",
+    location: "liquidity-lab-client.tsx:prepareLpV4ApprovalsAndPermit#postCheckApproval",
+    message: "/lp/check_approval response",
+    data: {
+      hasV4BatchPermitData: Boolean(checkJson.v4BatchPermitData),
+      transactionsCount: Array.isArray(checkJson.transactions) ? checkJson.transactions.length : -1,
+      v4BatchPermitData: checkJson.v4BatchPermitData,
+      requestId: checkJson.requestId,
+    },
+  })
+  // #endregion
+
   const rawTxs = Array.isArray(checkJson.transactions) ? (checkJson.transactions as unknown[]) : []
   const approvalTxs: LabUnsignedTx[] = []
   for (const raw of rawTxs) {
@@ -123,6 +255,19 @@ async function prepareLpV4ApprovalsAndPermit(input: {
       if (m) approvalTxs.push(m)
     }
   }
+  // #region agent log
+  __labDebugLog({
+    hypothesisId: "H6",
+    location: "liquidity-lab-client.tsx:prepareLpV4ApprovalsAndPermit#postMapApprovalTxs",
+    message: "approvalTxs after mapLabUnsignedTx",
+    data: {
+      rawCount: rawTxs.length,
+      mappedCount: approvalTxs.length,
+      firstRawKeys: rawTxs[0] && typeof rawTxs[0] === "object" ? Object.keys(rawTxs[0] as object) : [],
+      firstRaw: rawTxs[0] ?? null,
+    },
+  })
+  // #endregion
   for (let i = 0; i < approvalTxs.length; i += 1) {
     const tx = approvalTxs[i]
     const hash = await walletClient.sendTransaction({
@@ -136,44 +281,188 @@ async function prepareLpV4ApprovalsAndPermit(input: {
       maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
     })
     /** Wait so the next-call permit nonce + Permit2 contract spends the new allowance, not stale state. */
-    await publicClient.waitForTransactionReceipt({ hash })
+    const receipt = await publicClient.waitForTransactionReceipt({ hash })
+    // #region agent log
+    __labDebugLog({
+      hypothesisId: "H7",
+      location: "liquidity-lab-client.tsx:prepareLpV4ApprovalsAndPermit#approvalTxReceipt",
+      message: "Approval tx receipt",
+      data: {
+        index: i,
+        to: tx.to,
+        hash,
+        status: receipt.status,
+        blockNumber: receipt.blockNumber.toString(),
+        dataPrefix: tx.data.slice(0, 10),
+      },
+    })
+    // #endregion
   }
 
   const permit = checkJson.v4BatchPermitData
   if (!permit || typeof permit !== "object") return {}
-  const p = permit as { domain?: unknown; types?: unknown; values?: unknown; primaryType?: unknown }
+  const p = permit as {
+    domain?: unknown
+    types?: unknown
+    values?: unknown
+    message?: unknown
+    primaryType?: unknown
+  }
+  /** Uniswap docs spec it as `values`; older serializers + the Trading API have used `message`. */
+  const messageRaw = (p.values ?? p.message) as unknown
   if (
     !p.domain ||
     typeof p.domain !== "object" ||
     !p.types ||
     typeof p.types !== "object" ||
-    !p.values ||
-    typeof p.values !== "object"
+    !messageRaw ||
+    typeof messageRaw !== "object"
   ) {
     return {}
   }
-  const types = p.types as Record<string, unknown>
+
+  const types = normalizeTypedDataTypes(p.types)
+  if (Object.keys(types).length === 0) {
+    /** Sample the first non-EIP712Domain key so the toast shows what the serializer actually used,
+     * without flooding DevTools — paste this into a follow-up if more massaging is needed. */
+    let sample = ""
+    try {
+      const obj = p.types as Record<string, unknown>
+      const firstKey = Object.keys(obj).find(k => k !== "EIP712Domain") ?? Object.keys(obj)[0]
+      if (firstKey != null) {
+        sample = ` First key: ${firstKey} → ${JSON.stringify(obj[firstKey]).slice(0, 240)}`
+      }
+    } catch {
+      /* ignore JSON.stringify cycles */
+    }
+    throw new Error(`Uniswap LP API returned a permit with unrecognized \`types\` shape.${sample}`)
+  }
   const primaryType =
     typeof p.primaryType === "string" && p.primaryType.length > 0
       ? p.primaryType
-      : pickEip712PrimaryType(types)
+      : pickEip712PrimaryType(types as unknown as Record<string, unknown>)
+  if (!types[primaryType]) {
+    throw new Error(`Uniswap LP API permit missing struct definition for primaryType "${primaryType}".`)
+  }
+
+  const message = messageRaw as Record<string, unknown>
+
+  /** Coerce `domain.chainId` to a number for `eth_signTypedData_v4`. The Uniswap Liquidity API
+   * has been observed to serialize this as the chain's *enum name* (e.g. "BASE_SEPOLIA") rather
+   * than the integer chainId (84532). Wallets compare `domain.chainId` strictly against their
+   * connected chain and reject anything non-numeric with the InvalidParamsRpcError (JSON-RPC -32602)
+   * "chainId should be same as current chainId" — proven by debug-454cbc.log line 2 + 3. */
+  const domain: Record<string, unknown> = { ...(p.domain as Record<string, unknown>) }
+  const rawDomainChainId = domain.chainId
+  if (typeof rawDomainChainId === "number" && Number.isFinite(rawDomainChainId)) {
+    /* already a number — nothing to do */
+  } else if (typeof rawDomainChainId === "bigint") {
+    domain.chainId = Number(rawDomainChainId)
+  } else if (typeof rawDomainChainId === "string") {
+    const parsed = rawDomainChainId.startsWith("0x")
+      ? Number.parseInt(rawDomainChainId, 16)
+      : Number.parseInt(rawDomainChainId, 10)
+    /** Hex/decimal numeric string → integer; enum name like "BASE_SEPOLIA" → fall back to
+     * the chainId of the request that produced this permit. */
+    domain.chainId = Number.isFinite(parsed) ? parsed : chainId
+  } else {
+    domain.chainId = chainId
+  }
+
+  /** Re-check the wallet's current chain right before signing — `useWalletClient`'s closure may
+   * have been captured before `switchChainAsync` settled, and the wallet itself can also be on
+   * a different chain than the one the API issued the permit for. */
+  const targetChainId =
+    typeof domain.chainId === "number" ? domain.chainId : chainId
+  let walletChainId: number
+  try {
+    walletChainId = await walletClient.getChainId()
+  } catch {
+    walletChainId = chainId
+  }
+  if (walletChainId !== targetChainId) {
+    throw new Error(
+      `Wallet is on chain ${walletChainId} but the LP permit targets ${targetChainId}. ` +
+        `Switch your wallet to that chain (e.g. Base Sepolia / Base) and retry.`,
+    )
+  }
+
+  // #region agent log
+  /** Live RPC chainId via the wallet's underlying provider (bypasses any wagmi/viem caching).
+   * Lets us compare what the wallet ACTUALLY thinks its current chain is vs domain.chainId. */
+  let providerChainIdHex: unknown
+  try {
+    providerChainIdHex = await (walletClient as unknown as {
+      request: (a: { method: string; params: unknown[] }) => Promise<unknown>
+    }).request({ method: "eth_chainId", params: [] })
+  } catch (e) {
+    providerChainIdHex = `ERR:${e instanceof Error ? e.message : String(e)}`
+  }
+  __labDebugLog({
+    hypothesisId: "H1,H2,H3,H5",
+    location: "liquidity-lab-client.tsx:prepareLpV4ApprovalsAndPermit#preSignTypedData",
+    message: "About to call signTypedData",
+    data: {
+      walletChainId,
+      walletClientChainId: (walletClient as unknown as { chain?: { id?: number } }).chain?.id,
+      walletClientChainName: (walletClient as unknown as { chain?: { name?: string } }).chain?.name,
+      providerChainIdHex,
+      providerChainIdParsed:
+        typeof providerChainIdHex === "string" ? Number.parseInt(providerChainIdHex, 16) : null,
+      targetChainId,
+      domainChainId: domain.chainId,
+      domainChainIdType: typeof domain.chainId,
+      domainKeys: Object.keys(domain),
+      domain,
+      primaryType,
+      typesKeys: Object.keys(types),
+      messageKeys: Object.keys(message),
+    },
+  })
+  // #endregion
 
   /** viem `signTypedData` is heavily generic over a TypedData literal; the API gives us
    * dynamic shapes, so cast the input — viem still serializes the EIP-712 envelope correctly. */
-  const signature = (await walletClient.signTypedData({
-    account: address,
-    domain: p.domain as never,
-    types: types as never,
-    primaryType: primaryType as never,
-    message: p.values as never,
-  } as never)) as Hex
+  let signature: Hex
+  try {
+    signature = (await walletClient.signTypedData({
+      account: address,
+      domain: domain as never,
+      types: types as never,
+      primaryType: primaryType as never,
+      message: message as never,
+    } as never)) as Hex
+  } catch (e) {
+    // #region agent log
+    __labDebugLog({
+      hypothesisId: "H1,H2,H3,H5",
+      location: "liquidity-lab-client.tsx:prepareLpV4ApprovalsAndPermit#signTypedDataThrow",
+      message: "signTypedData rejected",
+      data: {
+        errorMessage: e instanceof Error ? e.message : String(e),
+        errorName: e instanceof Error ? e.name : undefined,
+        errorStack: e instanceof Error ? (e.stack ?? "").slice(0, 1500) : undefined,
+        cause: (e as { cause?: unknown })?.cause,
+        details: (e as { details?: unknown })?.details,
+        shortMessage: (e as { shortMessage?: unknown })?.shortMessage,
+        metaMessages: (e as { metaMessages?: unknown })?.metaMessages,
+      },
+    })
+    // #endregion
+    throw e
+  }
 
+  /** Return the **original** API envelope (the same shape the LP API gave us) plus the signature.
+   * Locally we re-shaped `types` (unwrapped `{fields:[...]}` → array) and coerced `domain.chainId`
+   * to a number purely so viem + the wallet would accept the EIP-712 sign request. The API's own
+   * `/lp/create` step is more likely to recognise its own serialization (enum chainId, wrapped
+   * types) than our viem-flavoured one, so we mirror it back unmodified. */
   return {
     batchPermitData: {
       domain: p.domain as Record<string, unknown>,
-      types,
-      values: p.values as Record<string, unknown>,
-      primaryType,
+      types: p.types as Record<string, unknown>,
+      values: messageRaw as Record<string, unknown>,
+      ...(typeof p.primaryType === "string" ? { primaryType: p.primaryType } : { primaryType }),
     },
     signature,
   }
@@ -599,6 +888,91 @@ export function LiquidityLabClient() {
         toast.error("No transactions in liquidity response.")
         return
       }
+
+      // #region agent log
+      /** Probe on-chain state right before the multicall:
+       *  - ERC-20 balance (H8: insufficient balance)
+       *  - ERC-20 → Permit2 allowance (H6/H7: missing or zero approve)
+       *  - Permit2 → spender allowance for (owner, token, spender) (H9: spender mismatch)
+       * Plus dump every LP tx returned by `/lp/create` so we can see if `multicall.to` is the
+       * same address the permit was signed for (`batchPermitData.values.spender`). */
+      const PERMIT2_ADDR_PROBE = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as Address
+      const ERC20_ALLOWANCE_ABI = parseAbi([
+        "function allowance(address owner, address spender) view returns (uint256)",
+      ])
+      const PERMIT2_ALLOWANCE_ABI = parseAbi([
+        "function allowance(address owner, address token, address spender) view returns (uint160 amount, uint48 expiration, uint48 nonce)",
+      ])
+      const permitSpenderRaw =
+        (batchPermitData as { values?: { spender?: unknown } } | undefined)?.values?.spender ??
+        (batchPermitData as { message?: { spender?: unknown } } | undefined)?.message?.spender
+      const permitSpender =
+        typeof permitSpenderRaw === "string" ? (permitSpenderRaw as Address) : undefined
+      let probeErc20Balance: string | null = null
+      let probeErc20PermitAllowance: string | null = null
+      let probePermit2Allowance: { amount: string; expiration: string; nonce: string } | null = null
+      try {
+        const bal = (await publicClient.readContract({
+          address: erc20,
+          abi: ERC20_BALANCE_OF_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        })) as bigint
+        probeErc20Balance = bal.toString()
+      } catch {
+        /* ignore */
+      }
+      try {
+        const allow = (await publicClient.readContract({
+          address: erc20,
+          abi: ERC20_ALLOWANCE_ABI,
+          functionName: "allowance",
+          args: [address, PERMIT2_ADDR_PROBE],
+        })) as bigint
+        probeErc20PermitAllowance = allow.toString()
+      } catch {
+        /* ignore */
+      }
+      if (permitSpender) {
+        try {
+          const [a, exp, n] = (await publicClient.readContract({
+            address: PERMIT2_ADDR_PROBE,
+            abi: PERMIT2_ALLOWANCE_ABI,
+            functionName: "allowance",
+            args: [address, erc20, permitSpender],
+          })) as [bigint, number, number]
+          probePermit2Allowance = {
+            amount: a.toString(),
+            expiration: String(exp),
+            nonce: String(n),
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      __labDebugLog({
+        hypothesisId: "H6,H7,H8,H9,H10",
+        location: "liquidity-lab-client.tsx:addEthErc20PairLiquidity#preMulticall",
+        message: "Pre-multicall on-chain probes + lp tx list",
+        data: {
+          erc20Address: erc20,
+          permit2: PERMIT2_ADDR_PROBE,
+          permitSpender,
+          probeErc20Balance,
+          probeErc20PermitAllowance,
+          probePermit2Allowance,
+          ethAmountWei: amountWei.toString(),
+          lpJsonKeys: Object.keys(lpJson as Record<string, unknown>),
+          lpTxs: txs.map((t, i) => ({
+            i,
+            to: t.to,
+            value: t.value?.toString() ?? null,
+            dataPrefix: t.data.slice(0, 10),
+            dataLen: t.data.length,
+          })),
+        },
+      })
+      // #endregion
 
       let lastHash: `0x${string}` | undefined
       for (const tx of txs) {
