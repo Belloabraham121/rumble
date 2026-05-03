@@ -10,3 +10,8 @@ node_modules/
 # Foundry (optional — regenerate via npm run contracts:build)
 contracts/cache/
 contracts/out/
+
+# Use npm + package-lock.json. Ignore other lockfiles so Vercel doesn't try to
+# install with `pnpm --frozen-lockfile` against a stale file.
+pnpm-lock.yaml
+yarn.lock
