@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
-import { upsertManyAgentsForUser } from "@/lib/db/agents.repo"
+import { findAgentForUser, upsertManyAgentsForUser } from "@/lib/db/agents.repo"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
 import type { Agent } from "@/lib/agents/agent-types"
+import { prepareAgentForUpsert } from "@/lib/agents/runtime/validate-config"
 import { getRomboServerEnv } from "@/lib/rombo/server-env"
 
 function isAgent(v: unknown): v is Agent {
@@ -52,7 +53,13 @@ export async function PUT(req: Request) {
     if (!isAgent(a)) {
       return NextResponse.json({ error: "Invalid agent object in array" }, { status: 400 })
     }
-    agents.push(a)
+    try {
+      const prev = await findAgentForUser(identity.romboUserIdHex, a.id)
+      agents.push(prepareAgentForUpsert(a, prev?.config))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Validation failed"
+      return NextResponse.json({ error: msg }, { status: 400 })
+    }
   }
 
   await upsertManyAgentsForUser({

@@ -5,6 +5,7 @@ import {
   isPoolPriceFresh,
   refreshPoolPrice,
   resolveArenaPoolContext,
+  type ArenaPoolLiveSnapshot,
 } from "@/lib/data/live-pool-tick"
 import { getRomboServerEnv } from "@/lib/rombo/server-env"
 
@@ -22,6 +23,18 @@ export async function GET(
 
   const poolId = arenaPoolId as ArenaPoolId
   const env = getRomboServerEnv()
+
+  if (!env.hasMongo && !env.hasSubgraph) {
+    return NextResponse.json(
+      {
+        error:
+          "Configure MONGODB_URI and/or UNISWAP_V3_SUBGRAPH_URL (with THE_GRAPH_API_KEY for gateway.thegraph.com) so pool prices can be loaded.",
+        code: "NO_DATA_SOURCE",
+      },
+      { status: 503 },
+    )
+  }
+
   const ctx = resolveArenaPoolContext(poolId)
   if (!ctx) {
     return NextResponse.json(
@@ -30,44 +43,85 @@ export async function GET(
     )
   }
 
-  let cached = await getPoolPrice({ chainId: ctx.chainId, arenaPoolId: poolId })
+  let cached = env.hasMongo
+    ? await getPoolPrice({ chainId: ctx.chainId, arenaPoolId: poolId })
+    : null
+  let liveSnapshot: ArenaPoolLiveSnapshot | undefined
+  let subgraphReason: string | undefined
+  let subgraphFetchError: string | undefined
 
   if (!isPoolPriceFresh(cached) && env.hasSubgraph) {
-    const outcome = await refreshPoolPrice(poolId)
-    if (outcome.ok) {
-      cached = await getPoolPrice({ chainId: ctx.chainId, arenaPoolId: poolId })
+    try {
+      const outcome = await refreshPoolPrice(poolId)
+      if (outcome.ok) {
+        liveSnapshot = outcome.snapshot
+        if (env.hasMongo) {
+          cached = await getPoolPrice({ chainId: ctx.chainId, arenaPoolId: poolId })
+        }
+      } else {
+        subgraphReason = outcome.reason
+      }
+    } catch (err) {
+      subgraphFetchError = err instanceof Error ? err.message : String(err)
     }
   }
 
-  if (!cached) {
+  const doc = cached ?? liveSnapshot
+  if (!doc) {
+    const chainMismatchHint =
+      subgraphReason === "pool not found in subgraph"
+        ? "UNISWAP_V3_SUBGRAPH_URL must be a Uniswap V3 subgraph for the same chain as ROMBO_TARGET_NETWORK / ROMBO_DEFAULT_CHAIN_ID (Base 8453 or Base Sepolia 84532). An Ethereum-mainnet subgraph returns no pools for Base token addresses."
+        : undefined
+
     return NextResponse.json(
       {
-        error: env.hasSubgraph
-          ? "Pool price not available yet — cron has not warmed the cache."
-          : "Subgraph not configured (UNISWAP_V3_SUBGRAPH_URL).",
+        error: subgraphFetchError
+          ? subgraphFetchError
+          : subgraphReason
+            ? subgraphReason
+            : env.hasSubgraph
+              ? "Pool price unavailable — see subgraphReason / pipeline."
+              : "Subgraph not configured — set UNISWAP_V3_SUBGRAPH_URL.",
+        code: subgraphFetchError
+          ? "SUBGRAPH_HTTP_OR_GRAPHQL"
+          : subgraphReason
+            ? "SUBGRAPH_REFRESH_FAILED"
+            : env.hasSubgraph
+              ? "NO_POOL_PRICE"
+              : "NO_SUBGRAPH",
         configured: env.hasSubgraph,
+        hasMongo: env.hasMongo,
+        arenaPoolId: poolId,
+        chainId: ctx.chainId,
+        chainSlug: ctx.chainSlug,
+        pipeline:
+          "POST UNISWAP_V3_SUBGRAPH_URL → Uniswap V3 `pools(where:{token0,token1,feeTier})` using `lib/trading/arena-pool-onchain.ts` token addresses for `chainSlug`; USD via bundle ETH×derivedETH.",
+        subgraphReason,
+        hint: chainMismatchHint,
       },
       { status: 503 },
     )
   }
 
-  const fresh = isPoolPriceFresh(cached)
+  const fresh = isPoolPriceFresh(doc)
 
   return NextResponse.json({
     arenaPoolId: poolId,
-    chainId: cached.chainId,
-    poolAddress: cached.poolAddress,
-    token0Symbol: cached.token0Symbol,
-    token1Symbol: cached.token1Symbol,
-    token0Price: cached.token0Price,
-    token1Price: cached.token1Price,
-    token0PriceUsd: cached.token0PriceUsd,
-    token1PriceUsd: cached.token1PriceUsd,
-    displayUsd: cached.displayUsd,
-    tick: cached.tick,
-    sqrtPriceX96: cached.sqrtPriceX96,
+    chainId: doc.chainId,
+    chainSlug: ctx.chainSlug,
+    upstream: "uniswap-v3-subgraph",
+    poolAddress: doc.poolAddress,
+    token0Symbol: doc.token0Symbol,
+    token1Symbol: doc.token1Symbol,
+    token0Price: doc.token0Price,
+    token1Price: doc.token1Price,
+    token0PriceUsd: doc.token0PriceUsd,
+    token1PriceUsd: doc.token1PriceUsd,
+    displayUsd: doc.displayUsd,
+    tick: doc.tick,
+    sqrtPriceX96: doc.sqrtPriceX96,
     source: fresh ? "subgraph" : "stale",
     stale: !fresh,
-    fetchedAt: cached.fetchedAt.toISOString(),
+    fetchedAt: doc.fetchedAt.toISOString(),
   })
 }

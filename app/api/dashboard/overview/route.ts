@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server"
+import { computeDashboardOverviewFromDb, parseMetricsRange } from "@/lib/agents/metrics"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
-import { agentDocToAgent, listAgentsForUser } from "@/lib/db/agents.repo"
-import { computeOverviewMetrics } from "@/lib/dashboard/overview-metrics"
 import { getRomboServerEnv } from "@/lib/rombo/server-env"
 
 /**
- * Dashboard KPI plates — aggregates persisted agents for the signed-in user (Mongo).
+ * Dashboard KPI plates — aggregates trading/agents runs + receipts for the signed-in user.
  * Does not read browser storage; clients should sync agents via `PUT /api/agents/sync` first.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const env = getRomboServerEnv()
   if (!env.hasMongo) {
     return NextResponse.json(
@@ -22,12 +21,22 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const docs = await listAgentsForUser(identity.romboUserIdHex)
-  const agents = docs.map(agentDocToAgent)
-  const metrics = computeOverviewMetrics(agents)
+  let range = parseMetricsRange(null)
+  try {
+    const u = new URL(req.url)
+    range = parseMetricsRange(u.searchParams.get("range"))
+  } catch {
+    // ignore
+  }
+
+  const metrics = await computeDashboardOverviewFromDb({
+    romboUserIdHex: identity.romboUserIdHex,
+    range,
+  })
 
   return NextResponse.json({
     metrics,
+    range,
     updatedAt: new Date().toISOString(),
     source: "mongo" as const,
   })

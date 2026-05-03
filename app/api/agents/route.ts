@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server"
 import {
   agentDocToAgent,
+  findAgentForUser,
   listAgentsForUser,
   upsertAgentForUser,
 } from "@/lib/db/agents.repo"
 import { getTradingAuditIdentity } from "@/lib/api/trading-audit"
 import type { Agent, AgentConfig } from "@/lib/agents/agent-types"
 import { migrateAgentConfig, DEFAULT_AGENT_CONFIG, DEFAULT_RUNTIME_BOXES } from "@/lib/agents/agent-types"
+import { prepareAgentForUpsert } from "@/lib/agents/runtime/validate-config"
 import { getRomboServerEnv } from "@/lib/rombo/server-env"
 
 function newAgentId(): string {
@@ -73,11 +75,18 @@ export async function POST(req: Request) {
   const raw = body as Record<string, unknown>
 
   if (raw.agent !== undefined && isAgentLike(raw.agent)) {
-    await upsertAgentForUser({
-      romboUserIdHex: identity.romboUserIdHex,
-      agent: raw.agent,
-    })
-    return NextResponse.json({ ok: true, agent: raw.agent })
+    try {
+      const prev = await findAgentForUser(identity.romboUserIdHex, raw.agent.id)
+      const agent = prepareAgentForUpsert(raw.agent, prev?.config)
+      await upsertAgentForUser({
+        romboUserIdHex: identity.romboUserIdHex,
+        agent,
+      })
+      return NextResponse.json({ ok: true, agent })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Validation failed"
+      return NextResponse.json({ error: msg }, { status: 400 })
+    }
   }
 
   const name = typeof raw.name === "string" ? raw.name.trim() : ""
@@ -106,6 +115,12 @@ export async function POST(req: Request) {
     activity: [],
   }
 
-  await upsertAgentForUser({ romboUserIdHex: identity.romboUserIdHex, agent })
-  return NextResponse.json({ ok: true, agent }, { status: 201 })
+  try {
+    const validated = prepareAgentForUpsert(agent, undefined)
+    await upsertAgentForUser({ romboUserIdHex: identity.romboUserIdHex, agent: validated })
+    return NextResponse.json({ ok: true, agent: validated }, { status: 201 })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Validation failed"
+    return NextResponse.json({ error: msg }, { status: 400 })
+  }
 }

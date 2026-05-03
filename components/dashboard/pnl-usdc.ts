@@ -1,18 +1,9 @@
-/**
- * Dashboard displays PnL in USDC. Internal totals stay in ETH; we convert using
- * the same reference ETH/USD anchor as the live chart (`usdFromSim` baseline).
- */
-export const ETH_USD_REF_FOR_PNL = 2306.94
+import { legacySimulatorEthPnlToUsd } from "@/lib/dashboard/legacy-simulator-pnl"
 
-export function pnlEthToUsdc(ethPnl: number): number {
-  return ethPnl * ETH_USD_REF_FOR_PNL
-}
-
-/** Formats signed USDC for metric cards (e.g. +1,234.56 USDC). */
-export function formatPnlUsdc(ethPnl: number, fractionDigits = 2): string {
-  const usdc = pnlEthToUsdc(ethPnl)
-  const sign = usdc > 0 ? "+" : usdc < 0 ? "−" : ""
-  const n = Math.abs(usdc)
+/** Signed USD / USDC display for metric cards (e.g. +1,234.56 USDC). Prefer API `netPnlUsd`. */
+export function formatSignedUsd(usd: number, fractionDigits = 2): string {
+  const sign = usd > 0 ? "+" : usd < 0 ? "−" : ""
+  const n = Math.abs(usd)
   const num = n.toLocaleString("en-US", {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
@@ -20,10 +11,22 @@ export function formatPnlUsdc(ethPnl: number, fractionDigits = 2): string {
   return `${sign}${num} USDC`
 }
 
-/** Signed integer USDC (no suffix) — for dense tables where the column header says USDC. */
-export function formatSignedUsdcIntegerFromEthPnl(ethPnl: number): string {
-  const usdc = pnlEthToUsdc(ethPnl)
-  const sign = usdc > 0 ? "+" : usdc < 0 ? "−" : ""
-  const n = Math.abs(usdc)
+/** Signed integer USDC (no suffix) — dense tables; value is already USD. */
+export function formatSignedUsdInteger(usd: number): string {
+  const sign = usd > 0 ? "+" : usd < 0 ? "−" : ""
+  const n = Math.abs(usd)
   return `${sign}${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+}
+
+/**
+ * Legacy simulator column — `totals.pnlEth` / activity rows still store ETH-shaped units.
+ * Server metrics use USD fields directly (`formatSignedUsd`).
+ */
+export function formatPnlUsdc(ethSimulatorPnl: number, fractionDigits = 2): string {
+  return formatSignedUsd(legacySimulatorEthPnlToUsd(ethSimulatorPnl), fractionDigits)
+}
+
+/** Legacy: ETH simulator → rounded integer USDC string. */
+export function formatSignedUsdcIntegerFromEthPnl(ethPnl: number): string {
+  return formatSignedUsdInteger(legacySimulatorEthPnlToUsd(ethPnl))
 }

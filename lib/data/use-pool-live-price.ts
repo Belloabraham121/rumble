@@ -84,7 +84,9 @@ export function usePoolLivePrice(
   }, [arenaPoolId, intervalMs, paused, fetchOnce])
 
   const parsed = raw?.displayUsd ? Number(raw.displayUsd) : null
-  const price = parsed !== null && Number.isFinite(parsed) ? parsed : null
+  /** Ignore subgraph zeros — treat as missing so UI can fall back / hold last good price. */
+  const price =
+    parsed !== null && Number.isFinite(parsed) && parsed > 0 ? parsed : null
 
   return {
     price,

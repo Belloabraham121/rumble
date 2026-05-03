@@ -2,16 +2,27 @@
 
 import type { ArenaAgentRow } from "@/components/dashboard/activity-types"
 import { ExpandButton } from "@/components/dashboard/expandable-module"
-import { formatSignedUsdcIntegerFromEthPnl, pnlEthToUsdc } from "@/components/dashboard/pnl-usdc"
+import {
+  formatSignedUsdInteger,
+  formatSignedUsdcIntegerFromEthPnl,
+} from "@/components/dashboard/pnl-usdc"
+import { legacySimulatorEthPnlToUsd } from "@/lib/dashboard/legacy-simulator-pnl"
 
 type Props = {
   agents: ArenaAgentRow[]
   currentAgentName?: string
   onExpand?: () => void
   variant?: "compact" | "lg"
+  loading?: boolean
 }
 
-export function DashboardArenaBoard({ agents, currentAgentName = "arena-alpha", onExpand, variant = "compact" }: Props) {
+export function DashboardArenaBoard({
+  agents,
+  currentAgentName = "arena-alpha",
+  onExpand,
+  variant = "compact",
+  loading = false,
+}: Props) {
   const sorted = [...agents].sort((a, b) => b.score - a.score)
   const lg = variant === "lg"
   return (
@@ -19,11 +30,13 @@ export function DashboardArenaBoard({ agents, currentAgentName = "arena-alpha", 
       <div className="shrink-0 px-3 py-2 border-b border-black/[0.06] bg-[#fafaf8]/90 flex items-center justify-between gap-2">
         <div>
           <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">Arena</p>
-          <p className="text-[10px] text-black/35 mt-0.5">Gladiator score · same pool family</p>
+          <p className="text-[10px] text-black/35 mt-0.5">
+            Gladiator score · 30d · Mongo
+          </p>
         </div>
         {onExpand && !lg && <ExpandButton onClick={onExpand} label="Expand arena" />}
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className={`flex-1 min-h-0 overflow-y-auto ${loading ? "opacity-60" : ""}`}>
         <table className={`w-full text-left ${lg ? "text-[11px]" : "text-[10px]"}`}>
           <thead>
             <tr className="text-black/35 border-b border-black/[0.06]">
@@ -39,6 +52,8 @@ export function DashboardArenaBoard({ agents, currentAgentName = "arena-alpha", 
           <tbody>
             {sorted.map((a, i) => {
               const you = a.name === currentAgentName
+              const pnlUsdDisplay =
+                a.pnlNetUsd !== undefined ? a.pnlNetUsd : legacySimulatorEthPnlToUsd(a.pnlEth)
               return (
                 <tr
                   key={a.id}
@@ -54,10 +69,12 @@ export function DashboardArenaBoard({ agents, currentAgentName = "arena-alpha", 
                   {lg && <td className="px-2 py-1.5 text-right tabular-nums text-black/60 hidden md:table-cell">{a.actions}</td>}
                   <td
                     className={`px-2 py-1.5 text-right tabular-nums ${
-                      pnlEthToUsdc(a.pnlEth) >= 0 ? "text-emerald-800/90" : "text-red-700/85"
+                      pnlUsdDisplay >= 0 ? "text-emerald-800/90" : "text-red-700/85"
                     }`}
                   >
-                    {formatSignedUsdcIntegerFromEthPnl(a.pnlEth)}
+                    {a.pnlNetUsd !== undefined
+                      ? formatSignedUsdInteger(a.pnlNetUsd)
+                      : formatSignedUsdcIntegerFromEthPnl(a.pnlEth)}
                   </td>
                   <td className={`px-2 py-1.5 text-right tabular-nums text-black/45 ${lg ? "" : "hidden sm:table-cell"}`}>
                     {(a.winRate * 100).toFixed(0)}%

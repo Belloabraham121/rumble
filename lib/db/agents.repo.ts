@@ -3,7 +3,9 @@ import "server-only"
 import type { ObjectId } from "mongodb"
 import { COLLECTIONS } from "@/lib/db/collections"
 import { getMongoDb } from "@/lib/db/mongo-client"
-import type { Agent } from "@/lib/agents/agent-types"
+import type { ArenaPoolId } from "@/lib/agents/arena-pools"
+import { migrateAgentConfig, type Agent } from "@/lib/agents/agent-types"
+import type { RomboChainSlug } from "@/lib/rombo/chain-config"
 
 export type AgentDoc = {
   _id: ObjectId
@@ -24,7 +26,7 @@ export function agentDocToAgent(doc: AgentDoc): Agent {
     id: doc.agentId,
     status: doc.status,
     createdAt: doc.createdAt,
-    config: doc.config,
+    config: migrateAgentConfig(doc.config as Record<string, unknown>),
     boxes: doc.boxes,
     totals: doc.totals,
     activity: doc.activity,
@@ -122,5 +124,24 @@ export async function listRunningAgents(): Promise<AgentDoc[]> {
   if (!db) return []
 
   const rows = await db.collection(COLLECTIONS.agents).find({ status: "running" }).toArray()
+  return rows as AgentDoc[]
+}
+
+/** Agents whose config allows trading `arenaPoolId` on `chainSlug` (arena leaderboard). */
+export async function listAgentsForArenaLeaderboard(input: {
+  chainSlug: RomboChainSlug
+  arenaPoolId: ArenaPoolId
+}): Promise<AgentDoc[]> {
+  const db = await getMongoDb()
+  if (!db) return []
+
+  const rows = await db
+    .collection(COLLECTIONS.agents)
+    .find({
+      "config.chain": input.chainSlug,
+      $or: [{ "config.tradeAllPools": true }, { "config.enabledPoolIds": input.arenaPoolId }],
+    })
+    .toArray()
+
   return rows as AgentDoc[]
 }

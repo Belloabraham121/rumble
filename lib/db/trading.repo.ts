@@ -3,6 +3,9 @@ import "server-only"
 import type { ObjectId } from "mongodb"
 import { COLLECTIONS } from "@/lib/db/collections"
 import { getMongoDb } from "@/lib/db/mongo-client"
+import type { SwapQuoteSnapshot } from "@/lib/trading/swap-quote-snapshot"
+
+export type { SwapQuoteSnapshot }
 
 export type TradingAttemptKind =
   | "quote"
@@ -38,6 +41,8 @@ export type TradingAttemptDoc = {
   status: "ok" | "error"
   errorCode?: string
   excerpt?: string
+  /** Populated for swap-like attempts when quote output could be parsed. */
+  swapQuote?: SwapQuoteSnapshot
   createdAt: Date
 }
 
@@ -110,6 +115,32 @@ export async function listTradingAttemptsRecentWithTx(input: {
     .limit(lim)
 
   const rows = await cur.toArray()
+  return rows as TradingAttemptDoc[]
+}
+
+/** All attempts for an agent in a time window (oldest → newest). `since = null` means full history. */
+export async function listTradingAttemptsForAgentInRange(input: {
+  agentId: string
+  romboUserIdHex: string
+  since: Date | null
+}): Promise<TradingAttemptDoc[]> {
+  const db = await getMongoDb()
+  if (!db) return []
+
+  const filter: Record<string, unknown> = {
+    agentId: input.agentId,
+    romboUserIdHex: input.romboUserIdHex,
+  }
+  if (input.since) {
+    filter.createdAt = { $gte: input.since }
+  }
+
+  const rows = await db
+    .collection(COLLECTIONS.tradingAttempts)
+    .find(filter)
+    .sort({ createdAt: 1 })
+    .toArray()
+
   return rows as TradingAttemptDoc[]
 }
 

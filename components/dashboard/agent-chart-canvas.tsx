@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useId, useMemo, useRef, useState } from "react"
-import type { ArenaResolutionPayload } from "@/components/dashboard/activity-types"
 import { chartTheme as T } from "@/components/dashboard/chart-theme"
 import { getPoolChartSim } from "@/lib/agents/arena-pools"
 
@@ -10,14 +9,14 @@ type Props = {
   onSelectTarget: (id: string | null) => void
   betAmount: string
   paused?: boolean
-  /** Canonical arena pool — drives sim Price path + quote (`mechanics.md`). */
+  /** Canonical arena pool — drives chart scaling + quote (`mechanics.md`). */
   poolId?: string
   onPriceUpdate?: (usdPrice: number) => void
-  /** Fires once per box when it resolves at the head (hit or miss). */
-  onArenaResolution?: (payload: ArenaResolutionPayload) => void
+  /** Server-confirmed swap hit — drives EXECUTED overlay (from `agent_runs`, not grid RNG). */
+  serverArenaFlash?: { hit: boolean; mult: number; payoutEth: number; at: number } | null
   /**
    * Live USD price from `/api/data/pools/[id]/price`. When set, the chart drives the
-   * head + trail from this value instead of the internal sim (`agent.md` §chart).
+   * head + trail from this value instead of the internal synthetic path (`agent.md` §chart).
    */
   liveUsdPrice?: number | null
   /** Optional seed prices (most recent USD closes) used to prime the trail on pool change. */
@@ -92,7 +91,7 @@ export function AgentChartCanvas({
   paused = false,
   poolId = "eth-usdc",
   onPriceUpdate,
-  onArenaResolution,
+  serverArenaFlash = null,
   liveUsdPrice = null,
   liveSeedUsdPrices,
 }: Props) {
@@ -100,8 +99,6 @@ export function AgentChartCanvas({
   const lineGlowId = `${uid}-lineGlow`
   const cellGlowLightId = `${uid}-cellGlowLight`
   const areaFillId = `${uid}-areaFill`
-  const trailFadeId = `${uid}-trailFade`
-
   const poolSim = useMemo(() => getPoolChartSim(poolId), [poolId])
 
   const gl = PAD.l
@@ -162,8 +159,6 @@ export function AgentChartCanvas({
   const parsedBet = Number.parseFloat(betAmount)
   const safeBet = Number.isFinite(parsedBet) && parsedBet > 0 ? parsedBet : 0
 
-  const seenResolvedRef = useRef(new Set<string>())
-
   /** Share latest values with the RAF loop without retriggering it on every tick. */
   const liveUsdPriceRef = useRef<number | null>(liveUsdPrice)
   const priceRangeRef = useRef({ minP, maxP })
@@ -175,23 +170,27 @@ export function AgentChartCanvas({
   }, [minP, maxP])
 
   /**
-   * Trail: map the last history points linearly across the area to the LEFT
-   * of the head (x = gl .. headX). The line flows up/down, landing on the head.
+   * Trail across the left band (gl → headX), always terminating at the head dot so the
+   * stroke never disappears when history has one sample or is briefly stale vs `currentP`.
    */
   const pathD = useMemo(() => {
-    if (history.length < 2) return ""
     const trail = history.slice(-48)
+    const hy = priceToY(currentP, minP, maxP)
+    const parts: string[] = []
+    if (trail.length === 0) {
+      return `M ${gl.toFixed(1)} ${hy.toFixed(1)} L ${headX.toFixed(1)} ${hy.toFixed(1)}`
+    }
     const n = trail.length
-    return trail
-      .map((pt, i) => {
-        const xNorm = i / (n - 1 || 1)
-        const x = gl + xNorm * (headX - gl)
-        const row = rowForPrice(pt.p, minP, maxP)
-        const y = gridTop + row * cellH + cellH / 2
-        return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`
-      })
-      .join(" ")
-  }, [history, minP, maxP, gl, headX, gridTop, cellH])
+    for (let i = 0; i < n; i++) {
+      const pt = trail[i]!
+      const xNorm = n <= 1 ? 0 : i / (n - 1)
+      const x = gl + xNorm * (headX - gl)
+      const y = priceToY(pt.p, minP, maxP)
+      parts.push(`${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`)
+    }
+    parts.push(`L ${headX.toFixed(1)} ${hy.toFixed(1)}`)
+    return parts.join(" ")
+  }, [history, minP, maxP, gl, headX, currentP])
 
   /** Seed history from real candles when provided. */
   useEffect(() => {
@@ -201,6 +200,25 @@ export function AgentChartCanvas({
     const last = seeded[seeded.length - 1]
     if (last) setCurrentP(last.p)
   }, [liveSeedUsdPrices])
+
+  /**
+   * Before candle seeds arrive, `history` still holds sim-scale points (~38–68) while
+   * `liveUsdPrice` is real USD — Y-scale explodes and the trail clips to a flat hairline.
+   * Prime USD-scale history so the back trail renders immediately.
+   */
+  useEffect(() => {
+    if (liveUsdPrice == null || !Number.isFinite(liveUsdPrice)) return
+    if (liveSeedUsdPrices && liveSeedUsdPrices.length > 0) return
+    setHistory(h => {
+      const legacySim = h.length > 0 && Math.max(...h.map(x => x.p)) < 200 && liveUsdPrice > 300
+      if (!legacySim && h.length >= 2) return h
+      return [
+        { x: 0, p: liveUsdPrice },
+        { x: 1, p: liveUsdPrice },
+      ]
+    })
+    setCurrentP(liveUsdPrice)
+  }, [liveUsdPrice, liveSeedUsdPrices])
 
   useEffect(() => {
     if (paused) {
@@ -316,18 +334,13 @@ export function AgentChartCanvas({
   }, [targets, selectedTargetId, onSelectTarget])
 
   useEffect(() => {
-    if (!onArenaResolution) return
-    const alive = new Set(targets.map(t => t.id))
-    for (const b of targets) {
-      if (!b.resolved || seenResolvedRef.current.has(b.id)) continue
-      seenResolvedRef.current.add(b.id)
-      const payoutEth = b.hit ? safeBet * b.mult : 0
-      onArenaResolution({ hit: b.hit, mult: b.mult, payoutEth })
-    }
-    for (const id of [...seenResolvedRef.current]) {
-      if (!alive.has(id)) seenResolvedRef.current.delete(id)
-    }
-  }, [targets, safeBet, onArenaResolution])
+    if (!serverArenaFlash?.hit) return
+    const payout = serverArenaFlash.payoutEth.toFixed(4)
+    setHitFlash({
+      label: `+${payout} ETH · x${serverArenaFlash.mult.toFixed(2)}`,
+      at: serverArenaFlash.at,
+    })
+  }, [serverArenaFlash?.at])
 
   return (
     <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col rounded-[28px] border-2 border-black/10 bg-white shadow-[0_40px_120px_rgba(0,0,0,0.08)] overflow-hidden">
@@ -354,10 +367,6 @@ export function AgentChartCanvas({
           <linearGradient id={areaFillId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={T.accentSoft} />
             <stop offset="100%" stopColor="rgba(16,185,129,0)" />
-          </linearGradient>
-          <linearGradient id={trailFadeId} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor={T.accentBright} stopOpacity="0" />
-            <stop offset="100%" stopColor={T.accentBright} stopOpacity="1" />
           </linearGradient>
         </defs>
 
@@ -474,25 +483,23 @@ export function AgentChartCanvas({
           )
         })}
 
-        {/* Trail area */}
-        {pathD && (
-          <path
-            d={`${pathD} L ${headX} ${H - PAD.b} L ${gl} ${H - PAD.b} Z`}
-            fill={`url(#${areaFillId})`}
-            opacity={0.8}
-          />
-        )}
+        {/* Trail fill — pathD always ends at the head; close down to baseline for area */}
+        <path
+          d={`${pathD} L ${headX} ${H - PAD.b} L ${gl} ${H - PAD.b} Z`}
+          fill={`url(#${areaFillId})`}
+          opacity={0.72}
+        />
 
-        {/* Trail line */}
+        {/* Trail line — drawn above scrolling boxes so it stays visible in the trail columns */}
         <path
           d={pathD}
           fill="none"
-          stroke={`url(#${trailFadeId})`}
-          strokeWidth="2.5"
+          stroke={T.accentBright}
+          strokeWidth="3.25"
           strokeLinecap="round"
           strokeLinejoin="round"
+          strokeOpacity={0.98}
           filter={`url(#${lineGlowId})`}
-          opacity={0.95}
         />
 
         {/* Head column marker */}

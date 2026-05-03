@@ -2,32 +2,52 @@ import "server-only"
 
 import { agentDocToAgent } from "@/lib/db/agents.repo"
 import type { AgentDoc } from "@/lib/db/agents.repo"
+import { refreshAgentMetricsRollupsForAgent } from "@/lib/agents/metrics"
 import { insertAgentRun } from "@/lib/db/agent-runs.repo"
 import { findAgentWallet } from "@/lib/db/agent-wallets.repo"
 import { getUserByRomboUserIdHex } from "@/lib/db/users.repo"
 import { ensureAgentPrivyWallet } from "@/lib/integrations/privy/agent-wallet"
 import { getPoolPrice } from "@/lib/data/pool-prices.repo"
-import { refreshPoolPrice } from "@/lib/data/live-pool-tick"
+import { isPoolPriceFresh, refreshPoolPrice } from "@/lib/data/live-pool-tick"
 import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import { getTradableArenaPools } from "@/lib/agents/arena-pools"
-import { evaluatePriceBoxes } from "@/lib/agents/runtime/evaluate-boxes"
+import { evaluateRuntimeDecision } from "@/lib/agents/runtime/llm-evaluate"
 import { executeAgentDecision, type ExecuteAgentContext } from "@/lib/agents/runtime/execute-decision"
 import { chainIdFromSlug } from "@/lib/rombo/chain-config"
+
+/** Deterministic arena mult / payout for chart flashes (ties to idempotency key). */
+function arenaBetShape(idempotencyKey: string, betAmountStr: string): { mult: number; payoutEth: number } {
+  let h = 0
+  for (let i = 0; i < idempotencyKey.length; i++) {
+    h = (h * 31 + idempotencyKey.charCodeAt(i)) >>> 0
+  }
+  const mult = Math.round((1.35 + ((h % 1000) / 1000) * 2.65) * 100) / 100
+  const betEth = Number.parseFloat(betAmountStr)
+  const bet = Number.isFinite(betEth) && betEth > 0 ? betEth : 0
+  const payoutEth = Math.round(bet * mult * 10000) / 10000
+  return { mult, payoutEth }
+}
 
 async function resolveDisplayUsd(
   arenaPoolId: ArenaPoolId,
   chainId: number,
 ): Promise<{ usd: number; stale?: boolean } | null> {
   let doc = await getPoolPrice({ chainId, arenaPoolId })
-  if (!doc?.displayUsd) {
-    const refreshed = await refreshPoolPrice(arenaPoolId, chainId)
-    if (!refreshed.ok) return null
-    doc = await getPoolPrice({ chainId, arenaPoolId })
+  if (doc?.displayUsd) {
+    const n = Number.parseFloat(String(doc.displayUsd))
+    if (!Number.isFinite(n)) return null
+    return { usd: n, stale: !isPoolPriceFresh(doc) }
   }
-  const raw = doc?.displayUsd
+
+  const refreshed = await refreshPoolPrice(arenaPoolId, chainId)
+  if (!refreshed.ok) return null
+
+  doc = await getPoolPrice({ chainId, arenaPoolId })
+  const raw = doc?.displayUsd ?? refreshed.snapshot.displayUsd
   const n = raw !== undefined ? Number.parseFloat(String(raw)) : NaN
   if (!Number.isFinite(n)) return null
-  return { usd: n }
+  const stale = doc ? !isPoolPriceFresh(doc) : false
+  return { usd: n, stale }
 }
 
 function tickBucket(ms = Date.now(), windowMs = 60_000): string {
@@ -106,7 +126,7 @@ export async function runAgentTick(agentDoc: AgentDoc): Promise<{
       continue
     }
 
-    const decision = evaluatePriceBoxes({
+    const { decision, source: decisionSource } = await evaluateRuntimeDecision({
       displayUsd: spot.usd,
       arenaPoolId,
       boxes: agent.boxes,
@@ -122,6 +142,7 @@ export async function runAgentTick(agentDoc: AgentDoc): Promise<{
         arenaPoolId,
         decision: "skip",
         summary: decision.reason,
+        detail: { decisionSource },
         idempotencyKey,
       })
       outcomes.push({ arenaPoolId, decision: "skip", reason: decision.reason })
@@ -135,7 +156,7 @@ export async function runAgentTick(agentDoc: AgentDoc): Promise<{
         arenaPoolId,
         decision: decision.type === "lp_increase" ? "lp_increase" : "lp_decrease",
         summary: "lp_not_implemented",
-        detail: { boxId: decision.boxId },
+        detail: { boxId: decision.boxId, decisionSource },
         idempotencyKey,
       })
       outcomes.push({ arenaPoolId, decision: decision.type })
@@ -155,13 +176,27 @@ export async function runAgentTick(agentDoc: AgentDoc): Promise<{
 
     const exec = await executeAgentDecision(decision, ctx)
 
+    const arena = arenaBetShape(idempotencyKey, agent.config.betAmount)
+
     await insertAgentRun({
       romboUserIdHex: agentDoc.romboUserIdHex,
       agentId: agent.id,
       arenaPoolId,
       decision: exec.ok ? "swap" : "error",
       summary: exec.summary,
-      detail: exec.ok ? { txHash: exec.txHash } : { error: exec.error },
+      detail: exec.ok
+        ? {
+            txHash: exec.txHash,
+            arenaMult: arena.mult,
+            arenaPayoutEth: arena.payoutEth,
+            decisionSource,
+          }
+        : {
+            error: exec.error,
+            arenaMult: arena.mult,
+            arenaPayoutEth: 0,
+            decisionSource,
+          },
       txHash: exec.ok ? exec.txHash : undefined,
       chainId,
       idempotencyKey,
@@ -175,6 +210,11 @@ export async function runAgentTick(agentDoc: AgentDoc): Promise<{
       txHash: exec.ok ? exec.txHash : undefined,
     })
   }
+
+  void refreshAgentMetricsRollupsForAgent({
+    romboUserIdHex: agentDoc.romboUserIdHex,
+    agentId: agent.id,
+  }).catch(() => {})
 
   return { outcomes }
 }

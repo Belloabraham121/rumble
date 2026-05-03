@@ -3,7 +3,9 @@
 import Link from "next/link"
 import { useState } from "react"
 import { DeleteAgentModal } from "@/components/dashboard/delete-agent-modal"
-import { formatPnlUsdc } from "@/components/dashboard/pnl-usdc"
+import { formatSignedUsd } from "@/components/dashboard/pnl-usdc"
+import { legacySimulatorEthPnlToUsd } from "@/lib/dashboard/legacy-simulator-pnl"
+import type { AgentMetricsSnapshot } from "@/lib/agents/metrics-types"
 import type { Agent, AgentStatus } from "@/lib/agents/agent-types"
 
 function statusDot(status: AgentStatus): string {
@@ -26,16 +28,26 @@ function timeAgo(ts: number): string {
 
 type Props = {
   agent: Agent
+  metrics?: AgentMetricsSnapshot | null
+  metricsLoading?: boolean
   onPauseToggle: (id: string, next: AgentStatus) => void
   onRemove: (id: string) => void
 }
 
-export function AgentCard({ agent, onPauseToggle, onRemove }: Props) {
+export function AgentCard({
+  agent,
+  metrics,
+  metricsLoading = false,
+  onPauseToggle,
+  onRemove,
+}: Props) {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const lastEvent = agent.activity[agent.activity.length - 1]
-  const actions = agent.totals.fills + agent.totals.skips
-  const winRate = actions > 0 ? agent.totals.fills / actions : 0
-  const pnl = agent.totals.pnlEth
+  const actionsLegacy = agent.totals.fills + agent.totals.skips
+  const winRateLegacy = actionsLegacy > 0 ? agent.totals.fills / actionsLegacy : 0
+  const actions = metrics?.actions ?? actionsLegacy
+  const winRate = metrics?.winRate ?? winRateLegacy
+  const pnlUsd = metrics?.netPnlUsd ?? legacySimulatorEthPnlToUsd(agent.totals.pnlEth)
 
   return (
     <>
@@ -73,14 +85,16 @@ export function AgentCard({ agent, onPauseToggle, onRemove }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div
+        className={`grid grid-cols-3 gap-2 ${metricsLoading && !metrics ? "opacity-70" : ""}`}
+      >
         <div className="rounded-lg border border-black/[0.06] bg-[#fafaf8]/90 px-2.5 py-2">
           <p className="text-[8px] tracking-widest text-black/35 uppercase">PnL</p>
           <p
-            className={`text-sm tabular-nums font-medium ${pnl >= 0 ? "text-emerald-700" : "text-red-700"}`}
+            className={`text-sm tabular-nums font-medium ${pnlUsd >= 0 ? "text-emerald-700" : "text-red-700"}`}
             style={{ fontFamily: '"IBM Plex Sans", sans-serif' }}
           >
-            {formatPnlUsdc(pnl)}
+            {formatSignedUsd(pnlUsd)}
           </p>
         </div>
         <div className="rounded-lg border border-black/[0.06] bg-[#fafaf8]/90 px-2.5 py-2">

@@ -52,6 +52,34 @@ export async function insertAgentRun(input: InsertAgentRunInput): Promise<void> 
   })
 }
 
+/** Runs with `createdAt` strictly after `since`, oldest → newest (for incremental polling). */
+export async function listAgentRunsAfter(input: {
+  agentId: string
+  romboUserIdHex: string
+  since: Date
+  limit?: number
+}): Promise<AgentRunDoc[]> {
+  const db = await getMongoDb()
+  if (!db) return []
+  await ensureAgentRunIndexes()
+
+  const lim = Math.min(Math.max(input.limit ?? 60, 1), 120)
+  const filter: Record<string, unknown> = {
+    agentId: input.agentId,
+    romboUserIdHex: input.romboUserIdHex,
+    createdAt: { $gt: input.since },
+  }
+
+  const rows = await db
+    .collection(COLLECTIONS.agentRuns)
+    .find(filter)
+    .sort({ createdAt: 1, _id: 1 })
+    .limit(lim)
+    .toArray()
+
+  return rows as AgentRunDoc[]
+}
+
 export async function listAgentRuns(input: {
   agentId: string
   romboUserIdHex?: string
@@ -75,6 +103,28 @@ export async function listAgentRuns(input: {
     .toArray()
 
   return rows as AgentRunDoc[]
+}
+
+/** Evaluator skips (`decision: skip`) in range; `since = null` → full history. */
+export async function countAgentRunSkipsInRange(input: {
+  agentId: string
+  romboUserIdHex: string
+  since: Date | null
+}): Promise<number> {
+  const db = await getMongoDb()
+  if (!db) return 0
+  await ensureAgentRunIndexes()
+
+  const filter: Record<string, unknown> = {
+    agentId: input.agentId,
+    romboUserIdHex: input.romboUserIdHex,
+    decision: "skip",
+  }
+  if (input.since) {
+    filter.createdAt = { $gte: input.since }
+  }
+
+  return db.collection(COLLECTIONS.agentRuns).countDocuments(filter)
 }
 
 export type AgentRunCursorPayload = { beforeTime: number; beforeId: string }

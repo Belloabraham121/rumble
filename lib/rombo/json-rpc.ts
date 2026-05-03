@@ -76,3 +76,57 @@ export function resolveAgentRuntimeRpcUrl(chainId: number, override?: string): s
   }
   return fallback
 }
+
+function hexToBigInt(hex: string): bigint {
+  const h = hex.startsWith("0x") ? hex : `0x${hex}`
+  return BigInt(h)
+}
+
+/** `eth_getBalance` — returns wei as bigint. */
+export async function ethGetBalanceWei(rpcUrl: string, address: string): Promise<bigint> {
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_getBalance",
+      params: [address, "latest"],
+    }),
+  })
+  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`)
+  const json = (await res.json()) as { result?: string; error?: { message?: string } }
+  if (json.error?.message) throw new Error(json.error.message)
+  const r = json.result
+  if (typeof r !== "string" || !r.startsWith("0x")) return BigInt(0)
+  return hexToBigInt(r)
+}
+
+const ERC20_BALANCE_OF = "0x70a08231"
+
+/** `balanceOf(owner)` for `token` — returns raw units (bigint). */
+export async function erc20BalanceOfRaw(
+  rpcUrl: string,
+  tokenAddress: string,
+  ownerAddress: string,
+): Promise<bigint> {
+  const owner = ownerAddress.replace(/^0x/i, "").toLowerCase()
+  if (owner.length !== 40) return BigInt(0)
+  const data = `${ERC20_BALANCE_OF}${"0".repeat(24)}${owner}` as `0x${string}`
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_call",
+      params: [{ to: tokenAddress, data }, "latest"],
+    }),
+  })
+  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`)
+  const json = (await res.json()) as { result?: string; error?: { message?: string } }
+  if (json.error?.message) throw new Error(json.error.message)
+  const r = json.result
+  if (typeof r !== "string" || !r.startsWith("0x") || r.length <= 2) return BigInt(0)
+  return hexToBigInt(r)
+}

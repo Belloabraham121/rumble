@@ -23,6 +23,9 @@ export type SubgraphPoolSpot = {
   sqrtPriceX96?: string
   token0PriceUsd?: string
   token1PriceUsd?: string
+  /** Pass-through for USD fallbacks when bundle ETH/USD is missing. */
+  token0DerivedEth?: string
+  token1DerivedEth?: string
   totalValueLockedUsd?: string
   volumeUsd24h?: string
   feesUsd24h?: string
@@ -214,10 +217,23 @@ function mapPoolSpot(raw: SubgraphPoolSpotRaw, ethUsd?: string): SubgraphPoolSpo
     sqrtPriceX96: raw.sqrtPrice,
     token0PriceUsd,
     token1PriceUsd,
+    token0DerivedEth,
+    token1DerivedEth,
     totalValueLockedUsd: raw.totalValueLockedUSD,
     volumeUsd24h: day?.volumeUSD,
     feesUsd24h: day?.feesUSD,
   }
+}
+
+/** Subgraph `bundle` is often empty on testnets; `ROMBO_ETH_USD_REF` fills the gap for derivedETH×ETH. */
+function effectiveBundleEthUsd(bundleEth?: string): string | undefined {
+  if (bundleEth) {
+    const n = Number(bundleEth)
+    if (Number.isFinite(n) && n > 0) return bundleEth
+  }
+  const ref = getRomboServerEnv().romboEthUsdRef
+  if (ref != null && Number.isFinite(ref) && ref > 0) return String(ref)
+  return undefined
 }
 
 async function fetchEthUsdFromBundle(): Promise<string | undefined> {
@@ -261,7 +277,7 @@ export async function fetchV3PoolSpotByAddress(poolAddress: string): Promise<Sub
     fetchEthUsdFromBundle(),
   ])
   if (!data.pool) return null
-  return mapPoolSpot(data.pool, ethUsd)
+  return mapPoolSpot(data.pool, effectiveBundleEthUsd(ethUsd))
 }
 
 /** Spot + fundamentals by (token0, token1, feeTier). Returns first matching pool. */
@@ -302,7 +318,7 @@ export async function fetchV3PoolSpotByPair(input: {
   ])
   const pool = data.pools?.[0]
   if (!pool) return null
-  return mapPoolSpot(pool, ethUsd)
+  return mapPoolSpot(pool, effectiveBundleEthUsd(ethUsd))
 }
 
 /** Fetch OHLC candles for a pool. */
@@ -315,7 +331,9 @@ export async function fetchV3PoolCandles(input: {
   const id = input.poolAddress.trim().toLowerCase()
   const first = Math.min(Math.max(input.limit ?? 120, 1), 500)
 
-  const entity = input.granularity === "minute" ? "poolMinuteDatas" : "poolHourDatas"
+  // Canonical Uniswap v3 subgraphs expose PoolHourData / PoolDayData only; many deployments
+  // (incl. testnets) have no `poolMinuteDatas` root field. Hourly OHLC is used for both granularities.
+  const entity = "poolHourDatas"
   const query = `
     query PoolCandles($pool: String!, $first: Int!) {
       ${entity}(where: { pool: $pool }, first: $first, orderBy: periodStartUnix, orderDirection: desc) {

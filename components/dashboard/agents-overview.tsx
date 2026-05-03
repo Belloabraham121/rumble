@@ -6,6 +6,7 @@ import { AgentCard } from "@/components/dashboard/agent-card";
 import { CreateAgentModal } from "@/components/dashboard/create-agent-modal";
 import { OverviewMetrics } from "@/components/dashboard/overview-metrics";
 import type { DashboardOverviewMetrics } from "@/lib/dashboard/overview-metrics";
+import { useAgentsMetricsBatch } from "@/lib/agents/use-agent-metrics";
 import { useAgentsStore } from "@/lib/agents/agents-store";
 import type { AgentConfig, AgentStatus } from "@/lib/agents/agent-types";
 
@@ -21,6 +22,11 @@ export function AgentsOverview() {
   const sortedAgents = useMemo(
     () => [...agents].sort((a, b) => b.createdAt - a.createdAt),
     [agents],
+  );
+
+  const metricsBatch = useAgentsMetricsBatch(
+    sortedAgents.map((a) => a.id),
+    "all",
   );
 
   const refreshOverview = useCallback(async () => {
@@ -127,6 +133,8 @@ export function AgentsOverview() {
             <AgentCard
               key={a.id}
               agent={a}
+              metrics={metricsBatch.byId[a.id]}
+              metricsLoading={metricsBatch.loading}
               onPauseToggle={handlePauseToggle}
               onRemove={removeAgent}
             />

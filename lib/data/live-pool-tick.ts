@@ -69,11 +69,94 @@ export function pickDisplayUsd(
   }
 }
 
+function positiveUsdString(raw?: string): boolean {
+  if (!raw) return false
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0
+}
+
+/**
+ * Subgraph `bundle` / `derivedETH` often yields empty USD on testnets. Fall back to pool
+ * `token*Price` ratios (USDC per WETH for canonical ETH/USDC) and `ROMBO_ETH_USD_REF`.
+ */
+export function resolveDisplayUsdForArena(
+  spot: SubgraphPoolSpot,
+  arenaPoolId: ArenaPoolId,
+): string | undefined {
+  const primary = pickDisplayUsd(spot, arenaPoolId)
+  if (positiveUsdString(primary)) return primary
+
+  const env = getRomboServerEnv()
+  const refEthUsd = env.romboEthUsdRef
+  const t0 = spot.token0.symbol ?? ""
+  const t1 = spot.token1.symbol ?? ""
+  const t0Stable = /usdc|usdt/i.test(t0)
+  const t1Stable = /usdc|usdt/i.test(t1)
+
+  switch (arenaPoolId) {
+    case "eth-usdc": {
+      // token1Price = price of WETH in token0 (USDC) ≈ USDC per 1 WETH when token0 is USDC.
+      if (t0Stable && positiveUsdString(spot.token1Price)) return spot.token1Price
+      if (t1Stable && positiveUsdString(spot.token0Price)) return spot.token0Price
+      if (refEthUsd != null && refEthUsd > 0) {
+        const t0e = spot.token0DerivedEth
+        const t1e = spot.token1DerivedEth
+        if (t0Stable && positiveUsdString(t1e)) return String(Number(t1e) * refEthUsd)
+        if (t1Stable && positiveUsdString(t0e)) return String(Number(t0e) * refEthUsd)
+      }
+      break
+    }
+    case "wbtc-eth": {
+      const t0Btc = /btc/i.test(t0)
+      if (refEthUsd != null && refEthUsd > 0) {
+        const d = t0Btc ? spot.token0DerivedEth : spot.token1DerivedEth
+        if (positiveUsdString(d)) return String(Number(d) * refEthUsd)
+      }
+      break
+    }
+    case "usdc-usdt": {
+      if (positiveUsdString(spot.token0Price)) return spot.token0Price
+      break
+    }
+    default:
+      break
+  }
+
+  return primary
+}
+
+/** In-memory shape matching what we persist / return from GET pool price (no Mongo `_id`). */
+export type ArenaPoolLiveSnapshot = {
+  arenaPoolId: ArenaPoolId
+  chainId: number
+  poolAddress: string
+  token0Price: string
+  token1Price: string
+  token0PriceUsd?: string
+  token1PriceUsd?: string
+  displayUsd?: string
+  tick?: string
+  sqrtPriceX96?: string
+  token0Symbol?: string
+  token1Symbol?: string
+  totalValueLockedUsd?: string
+  volumeUsd24h?: string
+  feesUsd24h?: string
+  fetchedAt: Date
+}
+
 export type RefreshPoolPriceOutcome =
-  | { ok: true; arenaPoolId: ArenaPoolId; displayUsd?: string; source: "subgraph" }
+  | {
+      ok: true
+      arenaPoolId: ArenaPoolId
+      displayUsd?: string
+      source: "subgraph"
+      /** Always set on success — use when Mongo is off or cache read returns null. */
+      snapshot: ArenaPoolLiveSnapshot
+    }
   | { ok: false; arenaPoolId: ArenaPoolId; reason: string }
 
-/** Fetch latest spot from subgraph, upsert cache. Subgraph is the only live source today. */
+/** Fetch latest spot from subgraph, upsert cache when Mongo is available. Subgraph is the only live source today. */
 export async function refreshPoolPrice(
   arenaPoolId: ArenaPoolId,
   chainId?: number,
@@ -96,7 +179,8 @@ export async function refreshPoolPrice(
   })
   if (!spot) return { ok: false, arenaPoolId, reason: "pool not found in subgraph" }
 
-  const displayUsd = pickDisplayUsd(spot, arenaPoolId)
+  const displayUsd = resolveDisplayUsdForArena(spot, arenaPoolId)
+  const fetchedAt = new Date()
 
   await upsertPoolPrice({
     chainId: ctx.chainId,
@@ -115,9 +199,29 @@ export async function refreshPoolPrice(
     volumeUsd24h: spot.volumeUsd24h,
     feesUsd24h: spot.feesUsd24h,
     source: "subgraph",
+    fetchedAt,
   })
 
-  return { ok: true, arenaPoolId, displayUsd, source: "subgraph" }
+  const snapshot: ArenaPoolLiveSnapshot = {
+    arenaPoolId,
+    chainId: ctx.chainId,
+    poolAddress: spot.poolAddress,
+    token0Price: spot.token0Price,
+    token1Price: spot.token1Price,
+    token0PriceUsd: spot.token0PriceUsd,
+    token1PriceUsd: spot.token1PriceUsd,
+    displayUsd,
+    tick: spot.tick,
+    sqrtPriceX96: spot.sqrtPriceX96,
+    token0Symbol: spot.token0.symbol,
+    token1Symbol: spot.token1.symbol,
+    totalValueLockedUsd: spot.totalValueLockedUsd,
+    volumeUsd24h: spot.volumeUsd24h,
+    feesUsd24h: spot.feesUsd24h,
+    fetchedAt,
+  }
+
+  return { ok: true, arenaPoolId, displayUsd, source: "subgraph", snapshot }
 }
 
 /** Runs `refreshPoolPrice` for every arena pool on the default chain. */

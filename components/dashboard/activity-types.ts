@@ -19,7 +19,10 @@ export type ArenaAgentRow = {
   id: string
   name: string
   pool: string
+  /** Legacy mock rows: ETH-shaped simulator units (converted to USDC in UI). */
   pnlEth: number
+  /** When set (real user row), PnL column uses USD directly — no ETH→USDC conversion. */
+  pnlNetUsd?: number
   winRate: number
   actions: number
   score: number

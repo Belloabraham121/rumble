@@ -30,19 +30,19 @@ Practical consequences:
 
 ## 1. Current state — what is still synthetic
 
-| Surface | File(s) | Source today | Replace with |
-|---|---|---|---|
-| Live price badge on chart | `components/dashboard/agent-chart-canvas.tsx` · `getPoolChartSim()` | Deterministic sine + jitter | Subgraph spot (token price) + on‑chain Quoter fallback |
-| Arena chart candles / path | `agent-chart-canvas.tsx` | Pure random walk | `poolHourDatas` / `poolMinuteDatas` subgraph + live tick |
-| Arena resolutions (`hit/mult/payoutEth`) | `agent-chart-canvas.tsx` | Row / column RNG | Derived from **real** swap / LP outcomes at tick time |
-| Execution log entries | `lib/agents/activity-join.ts` · `GET /api/agents/[agentId]/activity` | Was synthetic (`synthesize-activity`, removed) | `agent_runs` + receipt enrich + swap audit excerpts |
-| Per‑agent metrics card | `components/dashboard/dashboard-metrics.tsx` | `agent.totals` (sim) | `GET /api/agents/[agentId]/metrics` |
-| Agent card (grid) stats | `components/dashboard/agent-card.tsx` | Same `totals` | Same metrics endpoint (batched) |
-| Overview KPI plates | `components/dashboard/overview-metrics.tsx` | `GET /api/dashboard/overview` **but** fed by sim `totals` | Real runtime will now write real `totals` |
-| Arena leaderboard | `components/dashboard/mock-arena.ts` · `MOCK_ARENA_AGENTS` | Static | `GET /api/arena/leaderboard?poolId=` |
-| Transactions view | `components/dashboard/transactions-view.tsx` | **Half‑real**: receipts live, simulator rows still there | Drop simulator rows once runtime ships |
-| Agent runtime (decisions) | `lib/agents/agents-store.tsx` background tick | Client `setInterval` simulating hits | Server‑side tick → Uniswap API → Privy signing |
-| Config guardrails enforcement | `agent-types.ts` (UI only) | Not enforced anywhere | Runtime validates each action against `maxPositionPercent`, `slippage`, `gasCap`, `approvedTokens` |
+| Surface                                  | File(s)                                                              | Source today                                              | Replace with                                                                                       |
+| ---------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Live price badge on chart                | `components/dashboard/agent-chart-canvas.tsx` · `getPoolChartSim()`  | Deterministic sine + jitter                               | Subgraph spot (token price) + on‑chain Quoter fallback                                             |
+| Arena chart candles / path               | `agent-chart-canvas.tsx`                                             | Pure random walk                                          | `poolHourDatas` / `poolMinuteDatas` subgraph + live tick                                           |
+| Arena resolutions (`hit/mult/payoutEth`) | `agent-chart-canvas.tsx`                                             | Row / column RNG                                          | Derived from **real** swap / LP outcomes at tick time                                              |
+| Execution log entries                    | `lib/agents/activity-join.ts` · `GET /api/agents/[agentId]/activity` | Was synthetic (`synthesize-activity`, removed)            | `agent_runs` + receipt enrich + swap audit excerpts                                                |
+| Per‑agent metrics card                   | `components/dashboard/dashboard-metrics.tsx`                         | `agent.totals` (sim)                                      | `GET /api/agents/[agentId]/metrics`                                                                |
+| Agent card (grid) stats                  | `components/dashboard/agent-card.tsx`                                | Same `totals`                                             | Same metrics endpoint (batched)                                                                    |
+| Overview KPI plates                      | `components/dashboard/overview-metrics.tsx`                          | `GET /api/dashboard/overview` **but** fed by sim `totals` | Real runtime will now write real `totals`                                                          |
+| Arena leaderboard                        | `useArenaLeaderboard` · `arena_leaderboard_cache`                    | Mongo + cron                                              | `GET /api/arena/leaderboard?arenaPoolId=`                                                          |
+| Transactions view                        | `components/dashboard/transactions-view.tsx`                         | **Half‑real**: receipts live, simulator rows still there  | Drop simulator rows once runtime ships                                                             |
+| Agent runtime (decisions)                | `lib/agents/agents-store.tsx` background tick                        | Client `setInterval` simulating hits                      | Server‑side tick → Uniswap API → Privy signing                                                     |
+| Config guardrails enforcement            | `agent-types.ts` (UI only)                                           | Not enforced anywhere                                     | Runtime validates each action against `maxPositionPercent`, `slippage`, `gasCap`, `approvedTokens` |
 
 ---
 
@@ -54,13 +54,13 @@ Practical consequences:
 
 **New collections (Phase 2 – 6):**
 
-| Collection | Purpose |
-|---|---|
-| `pool_prices` | Short‑retention cache of live spot (per `arenaPoolId` + `chainId`). |
-| `pool_candles` | 1m / 5m / 1h OHLC derived from subgraph (or `poolMinuteDatas`). |
-| `agent_runs` | One row per tick: inputs, decision, outcome, references to `trading_attempts._id`, `onchain_receipts._id`. |
-| `agent_metrics` | Rolling aggregates recomputed after each finalized run (avoids scanning receipts on every API hit). |
-| `arena_leaderboard_cache` | Materialised leaderboard rows per `arenaPoolId`. |
+| Collection                | Purpose                                                                                                    |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `pool_prices`             | Short‑retention cache of live spot (per `arenaPoolId` + `chainId`).                                        |
+| `pool_candles`            | 1m / 5m / 1h OHLC derived from subgraph (or `poolMinuteDatas`).                                            |
+| `agent_runs`              | One row per tick: inputs, decision, outcome, references to `trading_attempts._id`, `onchain_receipts._id`. |
+| `agent_metrics`           | Rolling aggregates recomputed after each finalized run (avoids scanning receipts on every API hit).        |
+| `arena_leaderboard_cache` | Materialised leaderboard rows per `arenaPoolId`.                                                           |
 
 **Client:** pure display + optimistic mutations for config edits. No simulation once runtime ships.
 
@@ -79,23 +79,23 @@ Three supported pools: `eth-usdc`, `wbtc-eth`, `usdc-usdt` on the active `ROMBO_
 - `lib/integrations/uniswap/subgraph.ts`
   - Add `fetchV3PoolPriceByAddress(poolAddress)` → returns `{ token0Price, token1Price, tick, sqrtPriceX96, updatedAt }`.
   - Add `fetchV3PoolCandles({ poolAddress, granularity: "hour"|"minute", limit })` → OHLC rows.
-- `lib/oracles/chainlink.ts` *(new)*
+- `lib/oracles/chainlink.ts` _(new)_
   - `getEthUsdRef(chainId)` via Chainlink feeds (Base `ETH/USD` + `BTC/USD`) for USD normalisation of `wbtc-eth` and `eth-usdc` quotes. Fallback to subgraph token prices.
-- `lib/data/pool-prices.repo.ts` *(new)*
+- `lib/data/pool-prices.repo.ts` _(new)_
   - Upsert `pool_prices` snapshot with TTL index (e.g. keep 24h, 15s resolution).
-- `lib/data/live-pool-tick.ts` *(new)*
+- `lib/data/live-pool-tick.ts` _(new)_
   - Runs every 10–15s per pool via cron route.
   - Primary: subgraph. Fallback: Uniswap **QuoterV2** via a public RPC (`eth_call`).
 
 **APIs**
 
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/api/data/pools` | List three arena pools with latest price + TVL + 24h vol + fees. |
-| GET | `/api/data/pools/[arenaPoolId]/price` | Latest USD‑normalised spot + raw ticks. |
-| GET | `/api/data/pools/[arenaPoolId]/candles?granularity=minute&limit=120` | OHLC for chart. |
-| GET | `/api/data/pools/[arenaPoolId]/stats` | TVL / volume / fees snapshot. |
-| GET | `/api/cron/poll-pools` | Vercel cron hit; refreshes `pool_prices` + `pool_candles`. |
+| Method | Route                                                                | Purpose                                                          |
+| ------ | -------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| GET    | `/api/data/pools`                                                    | List three arena pools with latest price + TVL + 24h vol + fees. |
+| GET    | `/api/data/pools/[arenaPoolId]/price`                                | Latest USD‑normalised spot + raw ticks.                          |
+| GET    | `/api/data/pools/[arenaPoolId]/candles?granularity=minute&limit=120` | OHLC for chart.                                                  |
+| GET    | `/api/data/pools/[arenaPoolId]/stats`                                | TVL / volume / fees snapshot.                                    |
+| GET    | `/api/cron/poll-pools`                                               | Vercel cron hit; refreshes `pool_prices` + `pool_candles`.       |
 
 **Frontend**
 
@@ -112,7 +112,7 @@ Three supported pools: `eth-usdc`, `wbtc-eth`, `usdc-usdt` on the active `ROMBO_
 **TODO**
 
 - [x] Add subgraph pool helpers (price + candles) → `lib/integrations/uniswap/subgraph.ts` (`fetchV3PoolSpotByAddress`, `fetchV3PoolSpotByPair`, `fetchV3PoolCandles`).
-- [ ] Chainlink oracle helper for Base + Base Sepolia (fallback rules) — *deferred to Phase 2; ETH/USD is already derived from the subgraph `bundle.ethPriceUSD`.*
+- [ ] Chainlink oracle helper for Base + Base Sepolia (fallback rules) — _deferred to Phase 2; ETH/USD is already derived from the subgraph `bundle.ethPriceUSD`._
 - [x] `pool_prices` / `pool_candles` collections + TTL indices → `lib/data/pool-prices.repo.ts`, `lib/data/pool-candles.repo.ts`.
 - [x] `/api/data/pools/*` routes → `app/api/data/pools/route.ts`, `.../[arenaPoolId]/price`, `/candles`, `/stats`.
 - [x] `GET /api/cron/poll-pools` + `vercel.json` schedule → `app/api/cron/poll-pools/route.ts`, `vercel.json`. Cron auth gated by `ROMBO_CRON_SECRET`.
@@ -127,16 +127,16 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
 
 **Backend**
 
-- `lib/agents/runtime/evaluate-boxes.ts` *(new)*
+- `lib/agents/runtime/evaluate-boxes.ts` _(new)_
   - Given current `price`, `PriceBox[]`, `AgentConfig`, return one of:
     `{ type: "skip", reason }` · `{ type: "swap", ... }` · `{ type: "lp_increase", ... }` · `{ type: "lp_decrease", ... }`.
   - Enforces `maxPositionPercent`, `slippage`, `gasCap`, `approvedTokens`, `enabledPoolIds`.
-- `lib/agents/runtime/execute-decision.ts` *(new)*
+- `lib/agents/runtime/execute-decision.ts` _(new)_
   - Swap path: `uniswapCheckApproval` → `uniswapQuote` → `uniswapCreateSwap` → **sign via Privy agent wallet** (`signEthereumPersonalMessageWithAuthorizationKey` extended to `signTransaction`) → broadcast through Privy.
   - LP path: `uniswapLpCheckApproval` → `uniswapLpCreate|increase|decrease|claim` → sign + broadcast.
   - Writes `trading_attempts` (already used) + records `broadcastNonce`.
   - Returns the `txHash` + metadata for the receipt poller.
-- `lib/agents/runtime/tick.ts` *(new)*
+- `lib/agents/runtime/tick.ts` _(new)_
   - Orchestrates: fetch live price(s), loop `enabledPoolIds`, evaluate → execute → append `agent_runs` row.
   - Guard: skip if `agent.status !== "running"` or agent wallet missing.
 - `lib/integrations/privy/wallet-signing.ts`
@@ -146,12 +146,12 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
 
 **APIs**
 
-| Method | Route | Purpose |
-|---|---|---|
-| POST | `/api/agents/[agentId]/tick` | Internal — run one tick for an agent (protected by cron secret). |
-| POST | `/api/cron/agents-tick` | Vercel cron — iterates **all running** agents. |
-| POST | `/api/cron/poll-receipts` | Poll unresolved txs and call `applyReceiptEvent`. |
-| GET | `/api/agents/[agentId]/runs?limit=` | Audit log of runtime decisions (success / skip / error). |
+| Method | Route                               | Purpose                                                          |
+| ------ | ----------------------------------- | ---------------------------------------------------------------- |
+| POST   | `/api/agents/[agentId]/tick`        | Internal — run one tick for an agent (protected by cron secret). |
+| POST   | `/api/cron/agents-tick`             | Vercel cron — iterates **all running** agents.                   |
+| POST   | `/api/cron/poll-receipts`           | Poll unresolved txs and call `applyReceiptEvent`.                |
+| GET    | `/api/agents/[agentId]/runs?limit=` | Audit log of runtime decisions (success / skip / error).         |
 
 **Frontend**
 
@@ -174,7 +174,7 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
 
 **Backend**
 
-- `lib/agents/activity-join.ts` *(new)*
+- `lib/agents/activity-join.ts` _(new)_
   - Joins `trading_attempts` + `onchain_receipts` (by `txHash`) + `agent_runs` (by `idempotencyKey`) → `AgentActivityEvent` rows compatible with `components/dashboard/activity-types.ts`.
   - Populates:
     - `kind`: from `TradingAttemptKind` → `ExecutionKind` (`swap` / `add_liquidity` / `remove_liquidity` / `claim_fees` / `close_position` / `box_skipped`).
@@ -188,10 +188,10 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
 
 **APIs**
 
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/api/agents/[agentId]/activity?limit=&cursor=` | Real, paginated activity for this agent. |
-| GET | `/api/dashboard/transactions` (existing) | Returns `receipts` + `activityEvents` (from `agent_runs` join); no synthetic payload. |
+| Method | Route                                           | Purpose                                                                               |
+| ------ | ----------------------------------------------- | ------------------------------------------------------------------------------------- |
+| GET    | `/api/agents/[agentId]/activity?limit=&cursor=` | Real, paginated activity for this agent.                                              |
+| GET    | `/api/dashboard/transactions` (existing)        | Returns `receipts` + `activityEvents` (from `agent_runs` join); no synthetic payload. |
 
 **Frontend**
 
@@ -202,7 +202,7 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
 - `transactions-view.tsx`:
   - Remove `syntheticRows` — only `onchain` rows now.
   - Add explorer link column (e.g. `basescan.org/tx/...` when `chainId ∈ {8453, 84532}`).
-- ~~Delete `components/dashboard/synthesize-activity.ts`~~ *(done)*.
+- ~~Delete `components/dashboard/synthesize-activity.ts`~~ _(done)_.
 
 **TODO**
 
@@ -218,7 +218,7 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
 
 **Definitions (commit these to code):**
 
-- **Actions** = count of executed Uniswap API calls (swap, lp\_create/increase/decrease/claim) with `status = ok`.
+- **Actions** = count of executed Uniswap API calls (swap, lp_create/increase/decrease/claim) with `status = ok`.
 - **Fills** = actions whose receipt `status = success`.
 - **Skips** = evaluator returned `skip` **or** `trading_attempts.status = error` **or** receipt `status = reverted`.
 - **Gas** = Σ `receipt.gasUsed × receipt.effectiveGasPrice` over the period (wei → gwei for display, or USD via oracle).
@@ -228,19 +228,19 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
 
 **Backend**
 
-- `lib/agents/metrics.ts` *(new)*
-  - `computeAgentMetrics(agentId, range)` running fresh scan of receipts + attempts.
-  - Writes to `agent_metrics` after each finalized run so reads are O(1).
-- `lib/onchain/pricing-at.ts` *(new)*
-  - `getRefPriceAtTime({ symbol, timestamp })` via Chainlink historical feed or nearest subgraph candle.
+- `lib/agents/metrics.ts`
+  - `computeAgentMetrics` — fresh scan of receipts + attempts (definitions in file header).
+  - `agent_metrics` rollups (`lib/db/agent-metrics.repo.ts`) refreshed after each agent tick; APIs read-through cache (~5 min TTL) then merge.
+- `lib/onchain/pricing-at.ts`
+  - `getEthUsdSpot` for gas USD; `getRefPriceAtTime` stub (spot) until Chainlink / candle historical wiring.
 
 **APIs**
 
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/api/agents/[agentId]/metrics?range=24h|7d|all` | Real PnL / gas / actions / win. |
-| GET | `/api/agents/metrics?ids=a,b,c` | Batched for the agent grid. |
-| GET | `/api/dashboard/overview` | Keep API shape; read from `agent_metrics` rollups. |
+| Method | Route                                    | Purpose                                                              |
+| ------ | ---------------------------------------- | -------------------------------------------------------------------- | ---- | ------------------------------- |
+| GET    | `/api/agents/[agentId]/metrics?range=24h | 7d                                                                   | all` | Real PnL / gas / actions / win. |
+| GET    | `/api/agents/metrics?ids=a,b,c`          | Batched for the agent grid.                                          |
+| GET    | `/api/dashboard/overview`                | Same shape; aggregates from `agent_metrics` when fresh else compute. |
 
 **Frontend**
 
@@ -250,16 +250,16 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
   - Remove `"simulated · USDC"` subtitle.
 - `agent-card.tsx`: batched metrics via `/api/agents/metrics?ids=…`.
 - `overview-metrics.tsx`: unchanged API, labels drop "simulated".
-- `pnl-usdc.ts`: remove `ETH_USD_REF_FOR_PNL` constant; replace with helper that expects already‑USD numbers from the API.
+- `pnl-usdc.ts`: USD-first formatters; legacy simulator conversion lives in `lib/dashboard/legacy-simulator-pnl.ts`.
 
 **TODO**
 
-- [ ] Finalise PnL v1 formula + fixture tests.
-- [ ] Historical price helper.
-- [ ] `agent_metrics` collection + repo + rollup after each run.
-- [ ] `/api/agents/[agentId]/metrics` + batch variant.
-- [ ] Switch `DashboardMetrics` / `AgentCard` to hooks.
-- [ ] Remove client `winRate` math; remove `applyEventToTotals` from `agents-store`.
+- [x] Finalise PnL v1 formula + fixture tests (parsed swap amounts + `getRefPriceAtTime`). See `lib/agents/swap-pnl-v1.ts`, `swap-quote-amounts.ts`, `npm run test:metrics`.
+- [x] Historical price helper stub (`getRefPriceAtTime` → spot; extend with Chainlink / candles).
+- [x] `agent_metrics` collection + repo + rollup after each tick (`refreshAgentMetricsRollupsForAgent`).
+- [x] `/api/agents/[agentId]/metrics` + batch variant + overview aggregates.
+- [x] `DashboardMetrics` / `AgentCard` via `use-agent-metrics` + batch hook.
+- [x] Client win rate for KPIs comes from API metrics (no `applyEventToTotals` in codebase).
 
 ---
 
@@ -267,32 +267,32 @@ Goal: agents decide + execute on‑chain **without client sim**. Client becomes 
 
 **Backend**
 
-- `lib/arena/leaderboard.ts` *(new)*
+- `lib/arena/leaderboard.ts` _(new)_
   - Aggregates per‑pool top agents: rank by `score = 0.6 × pnlUsdNormalised + 0.3 × winRate × 100 + 0.1 × log(1 + actions)`.
   - Scoped to `arenaPoolId` + chain + last 30 days by default.
 - `arena_leaderboard_cache` collection + recompute job every 1 – 5 min via cron.
 
 **APIs**
 
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/api/arena/leaderboard?arenaPoolId=eth-usdc&range=30d&limit=20` | Ranked list of agents for the pool. |
-| GET | `/api/arena/my-rank?agentId=` | Current agent's rank + neighbours. |
-| POST | `/api/cron/arena-rebuild` | Rebuilds cache. |
+| Method     | Route                                                            | Purpose                                   |
+| ---------- | ---------------------------------------------------------------- | ----------------------------------------- |
+| GET        | `/api/arena/leaderboard?arenaPoolId=eth-usdc&range=30d&limit=20` | Ranked list of agents for the pool.       |
+| GET        | `/api/arena/my-rank?agentId=`                                    | Current agent's rank + neighbours (auth). |
+| GET / POST | `/api/cron/arena-rebuild`                                        | Rebuilds cache (cron uses GET).           |
 
 **Frontend**
 
 - New hook `use-arena-leaderboard(poolId)`.
 - `dashboard-arena-board.tsx`: consume hook.
-- Delete `components/dashboard/mock-arena.ts`.
+- ~~Delete `components/dashboard/mock-arena.ts`~~ _(done)_.
 - `dashboard-workspace.tsx`: drop the "merge mock with your agent" block; `arenaAgents` comes from the hook and already places the current agent correctly.
 
 **TODO**
 
-- [ ] Leaderboard aggregator (respects opt‑in / public flag per agent if we add one).
-- [ ] Cache + cron.
-- [ ] `/api/arena/*` routes.
-- [ ] Replace mock import in `dashboard-workspace.tsx`.
+- [x] Leaderboard aggregator (`lib/arena/leaderboard.ts`). Opt‑in / public flag deferred until agent schema exposes it.
+- [x] Cache (`arena_leaderboard_cache`) + Vercel cron `*/3 * * * *` → `/api/cron/arena-rebuild`.
+- [x] `/api/arena/leaderboard`, `/api/arena/my-rank`, cron route.
+- [x] `use-arena-leaderboard.ts`; `dashboard-workspace.tsx` wired; `mock-arena.ts` removed.
 
 ---
 
@@ -315,8 +315,8 @@ Once Phase 2–4 land, the visual arena stops simulating hits.
 
 **TODO**
 
-- [ ] Runs endpoint + SSE route.
-- [ ] Chart: switch from client‑driven RNG resolutions to server events.
+- [x] Runs endpoint (`GET …/runs?since=`) + SSE (`GET …/stream`).
+- [x] Chart: `useAgentArenaFlash` polls runs; `AgentChartCanvas` uses `serverArenaFlash` only (no grid RNG callback).
 
 ---
 
@@ -334,10 +334,10 @@ Once Phase 2–4 land, the visual arena stops simulating hits.
 
 **APIs**
 
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/api/agents/[agentId]/wallet` | Privy agent wallet `{ address, chainId, balanceEth, balanceUsdc }`. |
-| POST | `/api/agents/[agentId]/wallet/fund-intent` | Returns deposit instructions (address + recommended network). |
+| Method | Route                                      | Purpose                                                             |
+| ------ | ------------------------------------------ | ------------------------------------------------------------------- |
+| GET    | `/api/agents/[agentId]/wallet`             | Privy agent wallet `{ address, chainId, balanceEth, balanceUsdc }`. |
+| POST   | `/api/agents/[agentId]/wallet/fund-intent` | Returns deposit instructions (address + recommended network).       |
 
 **Frontend**
 
@@ -346,9 +346,9 @@ Once Phase 2–4 land, the visual arena stops simulating hits.
 
 **TODO**
 
-- [ ] Shared Zod schema.
-- [ ] `/api/agents/[agentId]/wallet*` routes.
-- [ ] Funding panel wiring.
+- [x] Shared Zod schema (`lib/agents/agent-schema.ts`) + `prepareAgentForUpsert` / pool-removal warnings (`lib/agents/runtime/validate-config.ts`).
+- [x] `GET /api/agents/[agentId]/wallet`, `POST /api/agents/[agentId]/wallet/fund-intent`.
+- [x] Funding block in `agent-capsule-panel.tsx` (address, balances, notes).
 
 ---
 
@@ -356,17 +356,15 @@ Once Phase 2–4 land, the visual arena stops simulating hits.
 
 Once Phases 1–5 ship, delete:
 
-- [ ] `lib/agents/arena-pools.ts` → `getPoolChartSim()` (sim math).
-- [x] `components/dashboard/synthesize-activity.ts` *(removed in Phase 3)*.
-- [ ] `components/dashboard/mock-arena.ts`.
-- [ ] `agents-store`:
-  - [ ] Background `setInterval` tick (`simulateBackgroundPayload`).
-  - [ ] `perturbRuntimePriceBoxes` drift (keep the user‑edit path only).
-  - [ ] `activity` field mutation via `appendResolution`.
-  - [ ] `totals` mutation via `applyEventToTotals`.
-- [x] `transactions-view.tsx` synthetic merge block *(removed in Phase 3)*.
-- [ ] `dashboard-workspace.tsx` arena merge + `arenaAgents` fabrication.
-- [ ] Subtitles that say "simulated" anywhere in metrics / transactions UI.
+- [ ] `lib/agents/arena-pools.ts` → `getPoolChartSim()` _(still used as USD↔chart coordinate bridge until a dedicated mapping replaces it)_.
+- [x] `components/dashboard/synthesize-activity.ts` _(removed in Phase 3)_.
+- [x] `components/dashboard/mock-arena.ts` _(removed in Phase 5)_.
+- [x] `agents-store`: removed runtime box drift interval + `perturbRuntimePriceBoxes`; no `simulateBackgroundPayload` / `appendResolution` / `applyEventToTotals` in repo.
+- [x] `transactions-view.tsx` synthetic merge block _(removed in Phase 3)_.
+- [x] `dashboard-workspace.tsx` arena merge + `arenaAgents` fabrication _(Phase 5: `useArenaLeaderboard`)_.
+- [x] Metrics / dashboard copy — removed client “simulation” drift UI and “sim” price source label _(→ `fallback`)_.
+
+**LLM:** Runtime tick consults OpenAI when `OPENAI_API_KEY` is set (`lib/agents/runtime/llm-evaluate.ts`); rule-based box matching remains the fallback.
 
 ---
 
@@ -392,6 +390,10 @@ CHAINLINK_FEEDS_BASE                 # JSON map {ETH_USD: 0x..., BTC_USD: 0x...}
 ROMBO_CRON_SECRET                    # guards /api/cron/*
 ROMBO_TICK_INTERVAL_SECONDS=12
 ROMBO_RECEIPT_POLL_INTERVAL_SECONDS=20
+
+OPENAI_API_KEY                         # optional — agent tick box selection (see llm-evaluate.ts)
+ROMBO_OPENAI_MODEL=gpt-4o-mini
+ROMBO_LLM_AGENT_ENABLED=               # set to false to disable LLM path
 ```
 
 Vercel cron (sketch `vercel.json`):
@@ -399,10 +401,10 @@ Vercel cron (sketch `vercel.json`):
 ```json
 {
   "crons": [
-    { "path": "/api/cron/poll-pools",      "schedule": "*/1 * * * *" },
-    { "path": "/api/cron/agents-tick",     "schedule": "*/1 * * * *" },
-    { "path": "/api/cron/poll-receipts",   "schedule": "*/1 * * * *" },
-    { "path": "/api/cron/arena-rebuild",   "schedule": "*/5 * * * *" }
+    { "path": "/api/cron/poll-pools", "schedule": "*/1 * * * *" },
+    { "path": "/api/cron/agents-tick", "schedule": "*/1 * * * *" },
+    { "path": "/api/cron/poll-receipts", "schedule": "*/1 * * * *" },
+    { "path": "/api/cron/arena-rebuild", "schedule": "*/5 * * * *" }
   ]
 }
 ```
@@ -470,6 +472,7 @@ GET /api/admin/health
 ## 6. Consolidated TODO (check off as we ship)
 
 ### Phase 1 — Live pool data
+
 - [x] Subgraph spot + candles helpers.
 - [ ] Chainlink oracle helper + env config (deferred to Phase 2; subgraph bundle ETH/USD already in use).
 - [x] `pool_prices`, `pool_candles` collections + TTL indices.
@@ -479,6 +482,7 @@ GET /api/admin/health
 - [ ] Remove `getPoolChartSim` (kept as subgraph-unavailable fallback; delete in Phase 8).
 
 ### Phase 2 — Agent runtime
+
 - [x] `evaluate-boxes.ts` (+ swap sizing); tests deferred.
 - [x] `execute-decision.ts` (swap path; LP automation deferred).
 - [x] Privy typed-data sign + `sendTransaction` helpers.
@@ -488,6 +492,7 @@ GET /api/admin/health
 - [x] Delete client `setInterval` + chart‑driven `recordResolution`.
 
 ### Phase 3 — Real execution log
+
 - [x] `activity-join.ts`.
 - [x] `/api/agents/[agentId]/activity`.
 - [x] Explorer URL helper.
@@ -495,6 +500,7 @@ GET /api/admin/health
 - [x] Delete `synthesize-activity.ts` (+ workspace now uses hook; optional later: strip `activity` from sync payloads).
 
 ### Phase 4 — Real metrics
+
 - [ ] PnL v1 formula + fixtures.
 - [ ] Historical price helper.
 - [ ] `agent_metrics` collection + repo.
@@ -503,25 +509,30 @@ GET /api/admin/health
 - [ ] Remove `agents-store` totals mutation + `pnl-usdc.ETH_USD_REF_FOR_PNL`.
 
 ### Phase 5 — Real arena
+
 - [ ] Leaderboard aggregator + cache.
 - [ ] `/api/arena/*` routes.
 - [ ] Replace `MOCK_ARENA_AGENTS` with hook.
 - [ ] Delete mock + merge block.
 
 ### Phase 6 — Server‑driven arena resolutions
+
 - [ ] `/api/agents/[agentId]/runs` (+ optional SSE).
 - [ ] Chart canvas consumes server events for the visual effect.
 
 ### Phase 7 — Server‑enforced config + funding
+
 - [ ] Shared Zod schema for `AgentConfig`.
 - [ ] `/api/agents/[agentId]/wallet` + fund intent.
 - [ ] Funding panel uses real wallet address + balances.
 
 ### Phase 8 — Remove all dummy paths
+
 - [ ] Deletion checklist above.
 - [ ] Drop "simulated" language in UI subtitles.
 
 ### Phase 9 — Ops
+
 - [ ] Structured logging.
 - [ ] Rate limiting on polling endpoints.
 - [ ] Health check endpoint.
@@ -540,4 +551,4 @@ GET /api/admin/health
 
 ---
 
-*Maintained alongside `BACKEND_API_ROADMAP.md`. Update the "Current state" table as items move from dummy → real.*
+_Maintained alongside `BACKEND_API_ROADMAP.md`. Update the "Current state" table as items move from dummy → real._

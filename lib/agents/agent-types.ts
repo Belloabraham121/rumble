@@ -39,13 +39,13 @@ export type AgentConfig = {
   /** Run reflection every N trades (`agent.md` runtime). */
   reflectionFrequencyTrades: string
   reflectionDepth: ReflectionDepth
-  /** Placeholder copy until real wallet is wired */
-  fundingWalletNote: string
+  /** User reminder for how they funded the agent (shown next to on-chain wallet). */
+  fundingNotes: string
   /**
-   * When true, low / high / action / amount % drift on a timer so you can preview
-   * dynamic runtime behavior (UI-only; no backend).
+   * Server-synced: removing an enabled pool may leave LP behind — surfaced in the capsule.
+   * Cleared on the next sync when no longer applicable.
    */
-  runtimeBoxesLive: boolean
+  poolRemovalWarnings?: string[]
   /** When true, agent may use every canonical arena pool (`mechanics.md`). */
   tradeAllPools: boolean
   /** Subset of arena pool ids — ignored when `tradeAllPools` is true. */
@@ -132,8 +132,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   betAmount: "0.10",
   reflectionFrequencyTrades: "25",
   reflectionDepth: "standard",
-  fundingWalletNote: "",
-  runtimeBoxesLive: false,
+  fundingNotes: "",
   tradeAllPools: false,
   enabledPoolIds: ["eth-usdc"],
 }
@@ -159,6 +158,13 @@ export function migrateAgentConfig(partial: Partial<AgentConfig> & Record<string
   }
   merged.tradeAllPools = typeof partial.tradeAllPools === "boolean" ? partial.tradeAllPools : false
 
+  const legacyPartial = partial as Record<string, unknown>
+  if (typeof legacyPartial.fundingNotes === "string") {
+    merged.fundingNotes = legacyPartial.fundingNotes
+  } else if (typeof legacyPartial.fundingWalletNote === "string") {
+    merged.fundingNotes = legacyPartial.fundingWalletNote
+  }
+
   if (!partial.enabledPoolIds || !Array.isArray(partial.enabledPoolIds)) {
     merged.enabledPoolIds = [inferArenaPoolFromLegacyFields(merged).id]
   } else {
@@ -171,6 +177,9 @@ export function migrateAgentConfig(partial: Partial<AgentConfig> & Record<string
   merged.basePair = primary.basePair
   merged.feeTier = primary.feeTier
   merged.pool = formatPoolLabel(primary.basePair, primary.feeTier)
+
+  delete (merged as Record<string, unknown>).runtimeBoxesLive
+
   return merged
 }
 
@@ -179,43 +188,4 @@ export function migratePriceBox(b: PriceBox): PriceBox {
     ...b,
     amountPercent: b.amountPercent ?? "33",
   }
-}
-
-function clamp(n: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, n))
-}
-
-function round1(n: number): number {
-  return Math.round(n * 10) / 10
-}
-
-/** Simulated drift for live runtime preview (`runtimeBoxesLive`). */
-export function perturbRuntimePriceBoxes(boxes: PriceBox[]): PriceBox[] {
-  const actions: PriceBox["action"][] = ["add_liquidity", "swap", "remove_liquidity"]
-  const jitter = () => (Math.random() - 0.5) * 1.5
-
-  return boxes.map(b => {
-    let low = round1(b.low + jitter())
-    let high = round1(b.high + jitter())
-    if (low >= high - 1) {
-      high = round1(low + 2 + Math.random() * 4)
-    }
-    low = clamp(low, 38, 70)
-    high = clamp(high, low + 2, 76)
-
-    const baseAmt = Number.parseInt(b.amountPercent ?? "33", 10)
-    const amt = clamp(Number.isFinite(baseAmt) ? baseAmt : 33, 10, 90)
-    const nextAmt = clamp(Math.round(amt + (Math.random() - 0.5) * 10), 10, 90)
-
-    const action =
-      Math.random() < 0.14 ? actions[Math.floor(Math.random() * actions.length)]! : b.action
-
-    return {
-      ...b,
-      low,
-      high,
-      action,
-      amountPercent: String(nextAmt),
-    }
-  })
 }

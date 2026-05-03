@@ -17,7 +17,6 @@ import {
   DEFAULT_RUNTIME_BOXES,
   migrateAgentConfig,
   migratePriceBox,
-  perturbRuntimePriceBoxes,
   type Agent,
   type AgentConfig,
   type AgentStatus,
@@ -26,8 +25,6 @@ import {
 import { toast } from "sonner";
 
 const STORAGE_KEY = "rombo.agents.v1";
-/** How often live-runtime price boxes drift when `runtimeBoxesLive` is on (visual only). */
-const RUNTIME_BOX_TICK_MS = 780;
 
 type CreateAgentInput = Partial<AgentConfig> & { name: string };
 
@@ -164,7 +161,7 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
     };
   }, [ready, sessionEmail]);
 
-  /** Debounced push — keeps Mongo aligned with arena simulator + config edits. */
+  /** Debounced push — keeps Mongo aligned with dashboard edits. */
   useEffect(() => {
     if (!ready || !sessionEmail || !backendHydrated || agents.length === 0)
       return;
@@ -243,19 +240,6 @@ export function AgentsStoreProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
-
-  useEffect(() => {
-    if (!ready) return;
-    const handle = window.setInterval(() => {
-      setAgents((prev) =>
-        prev.map((a) => {
-          if (!a.config.runtimeBoxesLive) return a;
-          return { ...a, boxes: perturbRuntimePriceBoxes(a.boxes) };
-        }),
-      );
-    }, RUNTIME_BOX_TICK_MS);
-    return () => window.clearInterval(handle);
-  }, [ready]);
 
   const value = useMemo<AgentsContextValue>(
     () => ({

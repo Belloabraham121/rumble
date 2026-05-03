@@ -5,7 +5,7 @@ import {
   isPoolPriceFresh,
   refreshPoolPrice,
   resolveArenaPoolContext,
-  type RefreshPoolPriceOutcome,
+  type ArenaPoolLiveSnapshot,
 } from "@/lib/data/live-pool-tick"
 import { getRomboServerEnv } from "@/lib/rombo/server-env"
 
@@ -48,34 +48,40 @@ export async function GET() {
       continue
     }
 
-    let cached = await getPoolPrice({ chainId: ctx.chainId, arenaPoolId: pool.id })
-    let refreshOutcome: RefreshPoolPriceOutcome | null = null
+    let cached = env.hasMongo
+      ? await getPoolPrice({ chainId: ctx.chainId, arenaPoolId: pool.id })
+      : null
+    let liveSnapshot: ArenaPoolLiveSnapshot | undefined
 
     if (!isPoolPriceFresh(cached) && env.hasSubgraph) {
-      refreshOutcome = await refreshPoolPrice(pool.id as ArenaPoolId)
-      if (refreshOutcome.ok) {
-        cached = await getPoolPrice({ chainId: ctx.chainId, arenaPoolId: pool.id })
+      const outcome = await refreshPoolPrice(pool.id as ArenaPoolId)
+      if (outcome.ok) {
+        liveSnapshot = outcome.snapshot
+        if (env.hasMongo) {
+          cached = await getPoolPrice({ chainId: ctx.chainId, arenaPoolId: pool.id })
+        }
       }
     }
 
-    const fresh = isPoolPriceFresh(cached)
+    const doc = cached ?? liveSnapshot
+    const fresh = isPoolPriceFresh(doc)
 
-    if (cached) {
+    if (doc) {
       rows.push({
         arenaPoolId: pool.id as ArenaPoolId,
         chainId: ctx.chainId,
         label: pool.label,
         livePairTag: pool.livePairTag,
         feeTier: ctx.feeTier,
-        poolAddress: cached.poolAddress,
-        displayUsd: cached.displayUsd,
-        token0Symbol: cached.token0Symbol,
-        token1Symbol: cached.token1Symbol,
-        totalValueLockedUsd: cached.totalValueLockedUsd,
-        volumeUsd24h: cached.volumeUsd24h,
-        feesUsd24h: cached.feesUsd24h,
+        poolAddress: doc.poolAddress,
+        displayUsd: doc.displayUsd,
+        token0Symbol: doc.token0Symbol,
+        token1Symbol: doc.token1Symbol,
+        totalValueLockedUsd: doc.totalValueLockedUsd,
+        volumeUsd24h: doc.volumeUsd24h,
+        feesUsd24h: doc.feesUsd24h,
         source: fresh ? "subgraph" : "stale",
-        fetchedAt: cached.fetchedAt.toISOString(),
+        fetchedAt: doc.fetchedAt.toISOString(),
         stale: !fresh,
       })
     } else {

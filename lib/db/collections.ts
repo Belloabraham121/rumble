@@ -21,4 +21,8 @@ export const COLLECTIONS = {
   indexerWebhookDeliveries: "indexer_webhook_deliveries",
   /** Server-side agent tick decisions + execution outcomes. */
   agentRuns: "agent_runs",
+  /** Cached Phase 4 dashboard metrics per agent (refreshed after ticks + read-through API). */
+  agentMetrics: "agent_metrics",
+  /** Phase 5 arena leaderboard rows per pool + chain + range (cron rebuild). */
+  arenaLeaderboardCache: "arena_leaderboard_cache",
 } as const

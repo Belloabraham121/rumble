@@ -7,6 +7,8 @@ import {
   type AgentConfig,
   type AgentStatus,
 } from "@/lib/agents/agent-types"
+import type { AgentWalletPayload } from "@/lib/agents/use-agent-wallet"
+import { toast } from "sonner"
 import {
   ARENA_POOLS,
   normalizeEnabledPoolIds,
@@ -22,6 +24,8 @@ const BAR = {
 } as const
 
 type Props = {
+  agentId: string
+  fundingWallet?: AgentWalletPayload | null
   config: AgentConfig
   onConfigChange: (patch: Partial<AgentConfig>) => void
   boxes: PriceBox[]
@@ -49,6 +53,8 @@ const ACTION_OPTS: { value: PriceBox["action"]; label: string }[] = [
 ]
 
 export function AgentCapsulePanel({
+  agentId,
+  fundingWallet,
   config,
   onConfigChange,
   boxes,
@@ -157,7 +163,7 @@ export function AgentCapsulePanel({
           Configure & run
         </h2>
         <p className="mt-1.5 text-[11px] text-black/38 leading-snug">
-          Matches Rombo agent spec — saved locally until APIs ship.
+          Matches Rombo agent spec — synced when you&apos;re signed in with Mongo configured.
         </p>
       </div>
 
@@ -272,6 +278,17 @@ export function AgentCapsulePanel({
         </p>
       </div>
 
+      {config.poolRemovalWarnings && config.poolRemovalWarnings.length > 0 && (
+        <div className="rounded-xl border border-amber-200/90 bg-amber-50/95 px-3 py-2.5 space-y-1">
+          <p className="font-pixel text-[8px] tracking-[0.18em] text-amber-900/70 uppercase">LP notice</p>
+          {config.poolRemovalWarnings.map((w, i) => (
+            <p key={`${i}-${w.slice(0, 24)}`} className="text-[10px] text-amber-950/90 leading-snug">
+              {w}
+            </p>
+          ))}
+        </div>
+      )}
+
       <SectionTitle>Guardrails</SectionTitle>
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-2">
@@ -351,62 +368,62 @@ export function AgentCapsulePanel({
       </div>
 
       <SectionTitle>Funding</SectionTitle>
-      <div className="rounded-xl border border-dashed border-black/15 bg-[#fafaf8]/90 px-3 py-2.5 space-y-1">
+      <div className="rounded-xl border border-dashed border-black/15 bg-[#fafaf8]/90 px-3 py-2.5 space-y-2">
         <p className="text-[10px] text-black/45 leading-relaxed">
-          When backend ships: a dedicated testnet wallet is assigned here; you fund it and the tick loop starts onchain.
+          Privy agent wallet for <span className="font-mono text-black/55">{agentId}</span>. Send native ETH for gas and USDC on this chain for swaps.
         </p>
+        {fundingWallet?.address ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-mono text-black/75 break-all">{fundingWallet.address}</span>
+              <button
+                type="button"
+                className="shrink-0 rounded-lg border border-black/12 px-2 py-1 text-[9px] uppercase tracking-wide text-black/55 hover:bg-black/[0.04]"
+                onClick={() => {
+                  void navigator.clipboard.writeText(fundingWallet.address!).then(() => {
+                    toast.success("Address copied")
+                  })
+                }}
+              >
+                Copy
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
+              <div>
+                <p className="text-[8px] uppercase tracking-wider text-black/35">ETH</p>
+                <p className="tabular-nums text-black/75">{fundingWallet.balanceEth ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-[8px] uppercase tracking-wider text-black/35">USDC</p>
+                <p className="tabular-nums text-black/75">{fundingWallet.balanceUsdc ?? "—"}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[10px] text-black/38">
+            Wallet appears after the first agent tick creates a Privy embedded wallet (Mongo + Privy configured).
+          </p>
+        )}
         <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Notes</label>
         <input
           className={fieldClass()}
-          value={config.fundingWalletNote}
-          onChange={e => set("fundingWalletNote", e.target.value)}
+          value={config.fundingNotes}
+          onChange={e => set("fundingNotes", e.target.value)}
           placeholder="Optional reminder (e.g. fund via bridge…)"
         />
       </div>
 
       <SectionTitle>Price boxes (runtime)</SectionTitle>
       <p className="text-[10px] text-black/38 leading-snug -mt-1 mb-2">
-        Low / high simulate chart triggers; action & % apply on hit (`agent.md`).
+        Chart coordinate bands; each tick the server may consult OpenAI when env has OPENAI_API_KEY, then guardrails and each box&apos;s action drive execution.
       </p>
 
-      <div className="rounded-xl border border-black/[0.07] bg-[#fafaf8]/90 px-3 py-2.5 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[9px] tracking-widest text-black/40 uppercase">Live runtime simulation</p>
-          <p className="text-[10px] text-black/38 mt-0.5 leading-snug">
-            On: low/high, action, and % drift in real time. Off: edit manually.
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={config.runtimeBoxesLive}
-          aria-label="Toggle live runtime simulation for price boxes"
-          onClick={() => onConfigChange({ runtimeBoxesLive: !config.runtimeBoxesLive })}
-          className={`relative h-7 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-black/20 ${
-            config.runtimeBoxesLive ? "bg-emerald-600" : "bg-black/15"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-              config.runtimeBoxesLive ? "translate-x-[18px]" : "translate-x-0"
-            }`}
-          />
-        </button>
-      </div>
-
-      {config.runtimeBoxesLive && (
-        <p className="text-[10px] text-emerald-800/80 bg-emerald-500/10 border border-emerald-600/15 rounded-lg px-2.5 py-1.5">
-          Simulation active — values update automatically. Turn off to type custom runtimes.
-        </p>
-      )}
-
-      <div className={`space-y-3 ${config.runtimeBoxesLive ? "opacity-[0.88] pointer-events-none" : ""}`}>
+      <div className="space-y-3">
         {boxes.map((box, idx) => (
           <div key={box.id} className="rounded-xl border border-black/[0.07] bg-white/80 p-3 space-y-2">
             <input
               className={fieldClass()}
               value={box.label}
-              readOnly={config.runtimeBoxesLive}
               onChange={e => patchBox(idx, { label: e.target.value })}
               placeholder="Label"
             />
@@ -418,7 +435,6 @@ export function AgentCapsulePanel({
                   type="number"
                   step="0.1"
                   value={box.low}
-                  readOnly={config.runtimeBoxesLive}
                   onChange={e => patchBox(idx, { low: Number.parseFloat(e.target.value) || 0 })}
                 />
               </div>
@@ -429,7 +445,6 @@ export function AgentCapsulePanel({
                   type="number"
                   step="0.1"
                   value={box.high}
-                  readOnly={config.runtimeBoxesLive}
                   onChange={e => patchBox(idx, { high: Number.parseFloat(e.target.value) || 0 })}
                 />
               </div>
@@ -440,7 +455,6 @@ export function AgentCapsulePanel({
                 <select
                   className={fieldClass()}
                   value={box.action}
-                  disabled={config.runtimeBoxesLive}
                   onChange={e => patchBox(idx, { action: e.target.value as PriceBox["action"] })}
                 >
                   {ACTION_OPTS.map(o => (
@@ -459,7 +473,6 @@ export function AgentCapsulePanel({
                   min={1}
                   max={100}
                   value={box.amountPercent ?? ""}
-                  readOnly={config.runtimeBoxesLive}
                   onChange={e => patchBox(idx, { amountPercent: e.target.value })}
                 />
               </div>
@@ -498,7 +511,7 @@ export function AgentCapsulePanel({
       </div>
 
       <p className="text-[9px] text-black/30 leading-relaxed border-t border-black/[0.06] pt-3">
-        Status: <span className="text-black/50">{agentStatus}</span> · Config + boxes persist locally; safe to navigate away.
+        Status: <span className="text-black/50">{agentStatus}</span> · Config + boxes persist when signed in (Mongo).
       </p>
     </aside>
   )

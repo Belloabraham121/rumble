@@ -3,6 +3,7 @@ import "server-only"
 import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import type { AgentConfig } from "@/lib/agents/agent-types"
 import { insertTradingAttempt } from "@/lib/db/trading.repo"
+import type { SwapQuoteSnapshot } from "@/lib/trading/swap-quote-snapshot"
 import { RomboUniswapError } from "@/lib/integrations/uniswap/errors"
 import { buildAgentQuoteRequestBody } from "@/lib/integrations/uniswap/agent-quote"
 import { tryExtractEip712FromQuote } from "@/lib/integrations/uniswap/eip712-from-quote"
@@ -17,6 +18,7 @@ import {
   tryExtractUnsignedTxFromSwapResponse,
   type RomboUnsignedEthTx,
 } from "@/lib/integrations/uniswap/swap-response-tx"
+import { tryBuildSwapQuoteSnapshot } from "@/lib/integrations/uniswap/swap-quote-amounts"
 import { uniswapQuote } from "@/lib/integrations/uniswap/trading"
 import {
   signAndBroadcastEthereumTransaction,
@@ -53,6 +55,7 @@ async function persistAttempt(input: {
   response?: unknown
   error?: unknown
   txHash?: string
+  swapQuote?: SwapQuoteSnapshot
 }): Promise<void> {
   const status = input.error ? ("error" as const) : ("ok" as const)
   let errorCode: string | undefined
@@ -81,6 +84,7 @@ async function persistAttempt(input: {
     status,
     errorCode,
     excerpt,
+    swapQuote: input.swapQuote,
   })
 }
 
@@ -236,12 +240,21 @@ export async function executeAgentDecision(
     }
   }
 
+  const swapQuote =
+    tryBuildSwapQuoteSnapshot({
+      quoteBody,
+      quoteResponse,
+      chainId: ctx.chainId,
+      evaluatedAtMs: Date.now(),
+    }) ?? undefined
+
   await persistAttempt({
     ctx,
     kind: "swap",
     payload: quoteBody,
     response: swapResponse,
     txHash,
+    swapQuote,
   })
 
   if (!txHash) {

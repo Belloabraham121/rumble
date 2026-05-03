@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:metrics": "tsx --test lib/agents/swap-pnl-v1.test.ts lib/integrations/uniswap/swap-quote-amounts.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -73,6 +74,7 @@
     "@types/react-dom": "^19",
     "postcss": "^8.5",
     "tailwindcss": "^4.2.0",
+    "tsx": "^4.19.3",
     "tw-animate-css": "1.3.3",
     "typescript": "^5"
   }

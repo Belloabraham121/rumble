@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { formatPnlUsdc } from "@/components/dashboard/pnl-usdc"
+import { formatSignedUsd } from "@/components/dashboard/pnl-usdc"
 import type { Agent } from "@/lib/agents/agent-types"
 import {
   computeOverviewMetrics,
@@ -32,18 +32,16 @@ export function OverviewMetrics({
     { label: "Agents", value: `${m.agentCount}`, sub: `${m.runningCount} running` },
     {
       label: "Total PnL",
-      value: formatPnlUsdc(m.totalPnlEth),
-      sub: useRemote
-        ? "all agents · Mongo · simulated · ETH→USDC @ ref"
-        : "all agents · simulated · ETH→USDC @ ref",
-      accent: m.totalPnlEth >= 0 ? "text-emerald-700" : "text-red-700",
+      value: formatSignedUsd(m.totalNetPnlUsd),
+      sub: useRemote ? "all agents · net USD · Mongo" : "all agents · local estimate",
+      accent: m.totalNetPnlUsd >= 0 ? "text-emerald-700" : "text-red-700",
     },
     {
       label: "Actions",
       value: `${m.totalActions}`,
       sub: `${m.totalFills} fills · ${m.totalSkips} skips`,
     },
-    { label: "Win rate", value: `${(m.winRate * 100).toFixed(0)}%`, sub: "fills / total" },
+    { label: "Win rate", value: `${(m.winRate * 100).toFixed(0)}%`, sub: "fills / (fills + skips)" },
   ]
 
   return (

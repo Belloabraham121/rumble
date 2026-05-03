@@ -101,30 +101,14 @@ function computeNotionalAmount(config: AgentConfig, box: PriceBox, arenaPoolId: 
 }
 
 /**
- * Pick at most one action when spot USD sits inside a runtime price box.
- * Coordinate space matches `getPoolChartSim` / dashboard canvas.
+ * Build swap/LP decision from a price box that already matches current spot (coordinate space).
+ * Action type (swap vs LP) comes from the stored box — not from the LLM.
  */
-export function evaluatePriceBoxes(input: {
-  displayUsd: number
-  arenaPoolId: ArenaPoolId
-  boxes: PriceBox[]
-  config: AgentConfig
-}): RuntimeDecision {
-  const { displayUsd, arenaPoolId, boxes, config } = input
-
-  const tradable = getTradableArenaPools(config.tradeAllPools, config.enabledPoolIds)
-  if (!tradable.some(p => p.id === arenaPoolId)) {
-    return { type: "skip", reason: "pool_not_enabled" }
-  }
-
-  const coord = chartCoordFromUsd(displayUsd, arenaPoolId)
-
-  const ordered = [...boxes].sort((a, b) => a.low - b.low)
-  const hit = ordered.find(b => coord >= b.low && coord <= b.high)
-  if (!hit) {
-    return { type: "skip", reason: "no_box_hit" }
-  }
-
+export function decisionForMatchedBox(
+  hit: PriceBox,
+  arenaPoolId: ArenaPoolId,
+  config: AgentConfig,
+): RuntimeDecision {
   const approved = parseCsvSymbols(config.approvedTokens)
   const { inSym, outSym } = symbolsForSwap(arenaPoolId)
   if (inSym && (!approved.has(inSym) || !approved.has(outSym))) {
@@ -152,4 +136,32 @@ export function evaluatePriceBoxes(input: {
     default:
       return { type: "skip", reason: "unknown_box_action" }
   }
+}
+
+/**
+ * Pick at most one action when spot USD sits inside a runtime price box.
+ * Coordinate space matches `getPoolChartSim` / dashboard canvas.
+ */
+export function evaluatePriceBoxes(input: {
+  displayUsd: number
+  arenaPoolId: ArenaPoolId
+  boxes: PriceBox[]
+  config: AgentConfig
+}): RuntimeDecision {
+  const { displayUsd, arenaPoolId, boxes, config } = input
+
+  const tradable = getTradableArenaPools(config.tradeAllPools, config.enabledPoolIds)
+  if (!tradable.some(p => p.id === arenaPoolId)) {
+    return { type: "skip", reason: "pool_not_enabled" }
+  }
+
+  const coord = chartCoordFromUsd(displayUsd, arenaPoolId)
+
+  const ordered = [...boxes].sort((a, b) => a.low - b.low)
+  const hit = ordered.find(b => coord >= b.low && coord <= b.high)
+  if (!hit) {
+    return { type: "skip", reason: "no_box_hit" }
+  }
+
+  return decisionForMatchedBox(hit, arenaPoolId, config)
 }

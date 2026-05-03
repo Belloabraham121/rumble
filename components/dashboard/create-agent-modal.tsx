@@ -334,41 +334,13 @@ export function CreateAgentModal({ open, onClose, onCreate, existingNames }: Pro
           </div>
 
           <div className="space-y-2">
-            <p className="font-pixel text-[8px] tracking-[0.18em] text-black/35 uppercase">Price boxes (runtime)</p>
-            <div className="rounded-xl border border-black/[0.07] bg-[#fafaf8]/90 px-3 py-2.5 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[9px] tracking-widest text-black/40 uppercase">Live runtime simulation</p>
-                <p className="text-[10px] text-black/38 mt-0.5 leading-snug">
-                  Drift low/high, action, and amount % on a timer (preview only).
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={cfg.runtimeBoxesLive}
-                aria-label="Toggle live runtime simulation"
-                onClick={() => set("runtimeBoxesLive", !cfg.runtimeBoxesLive)}
-                className={`relative h-7 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-black/20 ${
-                  cfg.runtimeBoxesLive ? "bg-emerald-600" : "bg-black/15"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                    cfg.runtimeBoxesLive ? "translate-x-[18px]" : "translate-x-0"
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
             <p className="font-pixel text-[8px] tracking-[0.18em] text-black/35 uppercase">Funding</p>
             <div>
               <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Wallet / custody note</label>
               <textarea
                 className={`${fieldClass()} min-h-[52px] resize-y leading-snug`}
-                value={cfg.fundingWalletNote}
-                onChange={e => set("fundingWalletNote", e.target.value)}
+                value={cfg.fundingNotes}
+                onChange={e => set("fundingNotes", e.target.value)}
                 placeholder="Optional note until live wallet is wired…"
               />
             </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AgentChartCanvas } from "@/components/dashboard/agent-chart-canvas";
 import { AgentCapsulePanel } from "@/components/dashboard/agent-capsule-panel";
@@ -9,16 +9,23 @@ import { DashboardArenaBoard } from "@/components/dashboard/dashboard-arena-boar
 import { DashboardMetrics } from "@/components/dashboard/dashboard-metrics";
 import { DashboardReplayControls } from "@/components/dashboard/dashboard-replay-controls";
 import { ExpandedModule } from "@/components/dashboard/expandable-module";
-import { MOCK_ARENA_AGENTS } from "@/components/dashboard/mock-arena";
+import { legacySimulatorEthPnlToUsd } from "@/lib/dashboard/legacy-simulator-pnl";
 import { useAgent, useAgentsStore } from "@/lib/agents/agents-store";
 import { useAgentActivity } from "@/lib/agents/use-agent-activity";
+import type { MetricsRange } from "@/lib/agents/metrics-types";
+import { useAgentMetrics } from "@/lib/agents/use-agent-metrics";
 import type { PriceBox } from "@/components/dashboard/types";
 import type { AgentConfig } from "@/lib/agents/agent-types";
 import {
   ARENA_POOL_BY_ID,
+  ARENA_POOL_IDS,
   getTradableArenaPools,
   type ArenaPoolId,
 } from "@/lib/agents/arena-pools";
+import { useArenaLeaderboard } from "@/lib/arena/use-arena-leaderboard";
+import { useAgentArenaFlash } from "@/lib/agents/use-agent-arena-flash";
+import { useAgentWallet } from "@/lib/agents/use-agent-wallet";
+import { chainIdFromSlug } from "@/lib/rombo/chain-config";
 import { usePoolCandles } from "@/lib/data/use-pool-candles";
 import { usePoolLivePrice } from "@/lib/data/use-pool-live-price";
 import { usePoolsList } from "@/lib/data/use-pools-list";
@@ -43,19 +50,14 @@ function formatArenaQuote(poolId: string, usd: number): string {
   })}`;
 }
 
-function formatUsdCompact(raw?: string): string {
-  if (!raw) return "—";
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return "—";
-  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
-  return `$${n.toFixed(0)}`;
-}
-
 export function DashboardWorkspace({ agentId }: Props) {
   const agent = useAgent(agentId);
   const { events: activity } = useAgentActivity(agentId);
+  const [metricsRange, setMetricsRange] = useState<MetricsRange>("all");
+  const { metrics: agentMetrics, loading: metricsLoading } = useAgentMetrics(
+    agentId,
+    metricsRange,
+  );
   const { updateConfig, updateBoxes, setStatus, ready } = useAgentsStore();
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [livePrice, setLivePrice] = useState(2306.94);
@@ -130,52 +132,29 @@ export function DashboardWorkspace({ agentId }: Props) {
     });
   }, []);
 
-  const winRate = useMemo(() => {
+  const winRateLegacy = useMemo(() => {
     const d = totals.fills + totals.skips;
     return d > 0 ? totals.fills / d : 0;
   }, [totals.fills, totals.skips]);
 
   const currentAgentName = config?.name ?? "arena-alpha";
 
-  const arenaAgents = useMemo(() => {
-    const scoreBump = Math.floor(totals.fills * 3 + totals.skips * 0.5);
-    const alreadyInList = MOCK_ARENA_AGENTS.some(
-      (a) => a.name === currentAgentName,
-    );
-    const base = MOCK_ARENA_AGENTS.map((a) =>
-      a.name === currentAgentName
-        ? {
-            ...a,
-            pnlEth: Number((a.pnlEth + totals.pnlEth * 0.42).toFixed(2)),
-            score: a.score + scoreBump,
-            winRate: totals.fills + totals.skips > 0 ? winRate : a.winRate,
-            actions: a.actions + totals.fills + totals.skips,
-          }
-        : a,
-    );
-    if (alreadyInList) return base;
-    // Insert the current (newly-created) agent alongside the demo roster.
-    return [
-      ...base,
-      {
-        id: agentId,
-        name: currentAgentName,
-        pool: config?.pool ?? "ETH / USDC · 0.05%",
-        pnlEth: Number(totals.pnlEth.toFixed(2)),
-        winRate,
-        actions: totals.fills + totals.skips,
-        score: 450 + scoreBump,
-      },
-    ];
-  }, [
-    totals.pnlEth,
-    totals.fills,
-    totals.skips,
-    winRate,
-    currentAgentName,
-    config?.pool,
-    agentId,
-  ]);
+  const livePoolId = overlayChartPoolId ?? committedChartPoolId;
+  const arenaChainId = useMemo(
+    () => chainIdFromSlug(config?.chain ?? "base-sepolia") ?? 84532,
+    [config?.chain],
+  );
+
+  const { agents: arenaAgents, loading: arenaLeaderboardLoading } =
+    useArenaLeaderboard({
+      arenaPoolId: livePoolId,
+      chainId: arenaChainId,
+      highlightAgentId: agentId,
+      limit: 20,
+    });
+
+  const arenaFlash = useAgentArenaFlash(agentId, livePoolId);
+  const { wallet: agentWallet } = useAgentWallet(agentId);
 
   useEffect(() => {
     if (!replayPlaying || activity.length === 0) return;
@@ -197,11 +176,23 @@ export function DashboardWorkspace({ agentId }: Props) {
       ? (activity[replayIndex]?.id ?? null)
       : null;
 
-  const livePoolId = overlayChartPoolId ?? committedChartPoolId;
   const livePairTag =
     ARENA_POOL_BY_ID[livePoolId]?.livePairTag ?? "ETH / USDC";
 
+  /** Single-pool hook drives the chart head; `/api/data/pools` fills the trio strip. */
   const livePriceHook = usePoolLivePrice(livePoolId, { intervalMs: 6000 });
+
+  /** Hold last non-zero poll so the chart trail does not vanish on transient 503 / zero parses. */
+  const lastGoodChartUsdRef = useRef<number | null>(null);
+  useEffect(() => {
+    const p = livePriceHook.price;
+    if (p != null && p > 0) lastGoodChartUsdRef.current = p;
+  }, [livePriceHook.price]);
+
+  const chartLiveUsd =
+    livePriceHook.price != null && livePriceHook.price > 0
+      ? livePriceHook.price
+      : lastGoodChartUsdRef.current;
   const candlesHook = usePoolCandles(committedChartPoolId, {
     granularity: "minute",
     limit: 120,
@@ -210,7 +201,7 @@ export function DashboardWorkspace({ agentId }: Props) {
     granularity: "minute",
     limit: 120,
   });
-  const poolsListHook = usePoolsList(20_000);
+  const poolsListHook = usePoolsList(6000);
 
   const liveSeedCloses = useMemo(() => {
     if (!candlesHook.ready || candlesHook.candles.length === 0) return undefined;
@@ -229,19 +220,8 @@ export function DashboardWorkspace({ agentId }: Props) {
   }, [overlayCandlesHook.ready, overlayCandlesHook.candles]);
 
   const livePriceDisplayed =
-    livePriceHook.price ?? (livePriceHook.unavailable ? livePrice : livePrice);
-  const liveSourceLabel = livePriceHook.unavailable
-    ? "sim"
-    : livePriceHook.stale
-      ? "stale"
-      : livePriceHook.ready
-        ? "subgraph"
-        : "…";
-
-  const livePoolListRow = useMemo(
-    () => poolsListHook.data?.pools.find((p) => p.arenaPoolId === livePoolId) ?? null,
-    [poolsListHook.data, livePoolId],
-  );
+    chartLiveUsd ??
+    (livePriceHook.unavailable ? livePrice : livePrice);
 
   if (!ready) {
     return (
@@ -303,6 +283,8 @@ export function DashboardWorkspace({ agentId }: Props) {
               </svg>
             </button>
             <AgentCapsulePanel
+              agentId={agentId}
+              fundingWallet={agentWallet}
               config={config}
               onConfigChange={handleConfigChange}
               boxes={agent.boxes}
@@ -330,8 +312,11 @@ export function DashboardWorkspace({ agentId }: Props) {
                   onPriceUpdate={
                     overlayChartPoolId ? undefined : setLivePrice
                   }
+                  serverArenaFlash={
+                    overlayChartPoolId ? null : arenaFlash
+                  }
                   liveUsdPrice={
-                    overlayChartPoolId ? null : livePriceHook.price
+                    overlayChartPoolId ? null : chartLiveUsd
                   }
                   liveSeedUsdPrices={
                     overlayChartPoolId ? undefined : liveSeedCloses
@@ -354,65 +339,107 @@ export function DashboardWorkspace({ agentId }: Props) {
                     betAmount={betAmount}
                     paused={agentStatus !== "running"}
                     onPriceUpdate={setLivePrice}
-                    liveUsdPrice={livePriceHook.price}
+                    serverArenaFlash={arenaFlash}
+                    liveUsdPrice={chartLiveUsd}
                     liveSeedUsdPrices={overlaySeedCloses}
                   />
                 </div>
               )}
             </div>
 
-            <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-end gap-2 pt-4 pr-4 md:pt-5 md:pr-5">
-              <div className="pointer-events-auto rounded-2xl border border-black/10 bg-white/92 backdrop-blur-md px-4 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.08)] min-w-[220px]">
-                <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase flex items-center gap-1.5">
-                  <span
-                    className={`inline-block h-1.5 w-1.5 rounded-full ${
-                      liveSourceLabel === "subgraph"
+            <div className="pointer-events-none absolute inset-0 z-30 flex justify-between items-start gap-3 pt-4 pl-4 pr-4 md:pt-5 md:pl-5 md:pr-5">
+              <div className="pointer-events-auto max-w-[min(100%,340px)] rounded-2xl border border-black/10 bg-white/92 backdrop-blur-md px-3.5 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.08)]">
+                <p className="font-pixel text-[9px] tracking-[0.2em] text-black/40 uppercase">
+                  Live · Spot price (USD)
+                </p>
+                <p className="mt-0.5 text-[10px] leading-snug text-black/38">
+                  Mid / dock price from the trading pair (e.g. ETH/USDC ≈ $2,000+). Not TVL,
+                  liquidity depth, or pool size.
+                </p>
+                <div className="mt-2 space-y-1.5">
+                  {ARENA_POOL_IDS.map((poolKey) => {
+                    const meta = ARENA_POOL_BY_ID[poolKey];
+                    const row = poolsListHook.data?.pools.find(
+                      (p) => p.arenaPoolId === poolKey,
+                    );
+                    const isChart = livePoolId === poolKey;
+                    const usd = row?.displayUsd
+                      ? Number(row.displayUsd)
+                      : null;
+                    const show =
+                      usd !== null &&
+                      Number.isFinite(usd) &&
+                      usd > 0;
+                    const dotClass =
+                      row?.source === "subgraph" && !row?.stale
                         ? "bg-emerald-500"
-                        : liveSourceLabel === "stale"
+                        : row?.source === "stale"
                           ? "bg-amber-500"
-                          : "bg-black/25"
-                    }`}
-                  />
-                  Live · {livePairTag}
+                          : row?.source === "unavailable"
+                            ? "bg-black/20"
+                            : "bg-black/25";
+                    return (
+                      <div
+                        key={poolKey}
+                        className={`rounded-xl px-2 py-1.5 ${
+                          isChart
+                            ? "bg-emerald-500/[0.09] ring-1 ring-emerald-600/15"
+                            : ""
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className={`shrink-0 font-pixel text-[8px] tracking-[0.12em] uppercase ${
+                              isChart ? "text-black/75" : "text-black/45"
+                            }`}
+                          >
+                            {meta.livePairTag}
+                          </span>
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span
+                              className={`truncate tabular-nums text-right ${
+                                isChart
+                                  ? "text-[17px] font-medium text-[#111]"
+                                  : "text-[13px] text-black/70"
+                              }`}
+                              style={{
+                                fontFamily: '"IBM Plex Sans", sans-serif',
+                              }}
+                            >
+                              {show
+                                ? formatArenaQuote(poolKey, usd)
+                                : poolsListHook.loading && !poolsListHook.ready
+                                  ? "…"
+                                  : "—"}
+                            </span>
+                            <span
+                              className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${row ? dotClass : "bg-black/15"}`}
+                              title={
+                                row?.source === "unavailable"
+                                  ? "No indexer data"
+                                  : row?.source ?? ""
+                              }
+                            />
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 border-t border-black/6 pt-2 font-pixel text-[8px] tracking-widest text-black/30 uppercase">
+                  Chart spot · {livePairTag}{" "}
+                  <span className="tabular-nums text-black/45 normal-case">
+                    {formatArenaQuote(livePoolId, livePriceDisplayed)}
+                  </span>
                 </p>
-                <p
-                  className="mt-0.5 text-2xl leading-none tabular-nums text-[#111]"
-                  style={{ fontFamily: '"IBM Plex Sans", sans-serif' }}
-                >
-                  {formatArenaQuote(livePoolId, livePriceDisplayed)}
-                </p>
-                <p className="mt-1 text-[9px] text-black/35 uppercase tracking-widest">
-                  Source: {liveSourceLabel}
-                </p>
-                {livePoolListRow && (
-                  <div className="mt-2 grid grid-cols-3 gap-1 border-t border-black/[0.06] pt-1.5">
-                    <div>
-                      <p className="font-pixel text-[7px] tracking-[0.18em] text-black/30 uppercase">TVL</p>
-                      <p className="text-[10px] tabular-nums text-black/70">
-                        {formatUsdCompact(livePoolListRow.totalValueLockedUsd)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="font-pixel text-[7px] tracking-[0.18em] text-black/30 uppercase">24h Vol</p>
-                      <p className="text-[10px] tabular-nums text-black/70">
-                        {formatUsdCompact(livePoolListRow.volumeUsd24h)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="font-pixel text-[7px] tracking-[0.18em] text-black/30 uppercase">24h Fees</p>
-                      <p className="text-[10px] tabular-nums text-black/70">
-                        {formatUsdCompact(livePoolListRow.feesUsd24h)}
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
+
               <label className="pointer-events-auto flex items-center gap-2 rounded-xl border border-black/10 bg-white/95 backdrop-blur-md px-3 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.06)]">
                 <span className="font-pixel text-[8px] tracking-[0.15em] text-black/40 uppercase whitespace-nowrap">
                   Arena pool
                 </span>
                 <select
-                  className="max-w-[220px] bg-transparent text-[11px] text-[#111] font-medium border-none focus:outline-none focus:ring-0 cursor-pointer truncate"
+                  className="max-w-[200px] bg-transparent text-[11px] text-[#111] font-medium border-none focus:outline-none focus:ring-0 cursor-pointer truncate"
                   value={overlayChartPoolId ?? committedChartPoolId}
                   onChange={(e) =>
                     handleChartPoolSelect(e.target.value as ArenaPoolId)
@@ -433,7 +460,7 @@ export function DashboardWorkspace({ agentId }: Props) {
                 type="button"
                 onClick={() => setSidebarOpen(true)}
                 aria-label="Show sidebar"
-                className="pointer-events-auto absolute top-5 left-5 z-30 flex items-center gap-2 rounded-2xl border border-black/10 bg-white/92 backdrop-blur-md px-3.5 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.08)] text-[11px] tracking-[0.18em] uppercase text-black/70 hover:text-black hover:bg-white transition-colors"
+                className="pointer-events-auto absolute bottom-6 left-5 z-30 flex items-center gap-2 rounded-2xl border border-black/10 bg-white/92 backdrop-blur-md px-3.5 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.08)] text-[11px] tracking-[0.18em] uppercase text-black/70 hover:text-black hover:bg-white transition-colors"
               >
                 <svg
                   width="13"
@@ -462,10 +489,19 @@ export function DashboardWorkspace({ agentId }: Props) {
             </div>
             <div className="lg:col-span-4 flex flex-col gap-2 min-h-0">
               <DashboardMetrics
-                pnlEth={totals.pnlEth}
-                gasGweiTotal={totals.gasGwei}
-                actions={totals.fills + totals.skips}
-                winRate={winRate}
+                range={metricsRange}
+                onRangeChange={setMetricsRange}
+                netPnlUsd={
+                  agentMetrics?.netPnlUsd ??
+                  legacySimulatorEthPnlToUsd(totals.pnlEth)
+                }
+                gasUsd={agentMetrics?.gasUsd}
+                gasGweiLegacy={totals.gasGwei}
+                actions={
+                  agentMetrics?.actions ?? totals.fills + totals.skips
+                }
+                winRate={agentMetrics?.winRate ?? winRateLegacy}
+                loading={metricsLoading}
               />
               <DashboardReplayControls
                 events={activity}
@@ -501,6 +537,7 @@ export function DashboardWorkspace({ agentId }: Props) {
               <DashboardArenaBoard
                 agents={arenaAgents}
                 currentAgentName={currentAgentName}
+                loading={arenaLeaderboardLoading}
                 onExpand={() => setArenaExpanded(true)}
               />
             </div>
@@ -525,12 +562,13 @@ export function DashboardWorkspace({ agentId }: Props) {
         open={arenaExpanded}
         onClose={() => setArenaExpanded(false)}
         title="Arena leaderboard"
-        subtitle={`Ranked across ${arenaAgents.length} agents · ${config.pool}`}
+        subtitle={`30d · Mongo · ${arenaAgents.length} agents · ${config.pool}`}
       >
         <DashboardArenaBoard
           agents={arenaAgents}
           currentAgentName={currentAgentName}
           variant="lg"
+          loading={arenaLeaderboardLoading}
         />
       </ExpandedModule>
     </div>
