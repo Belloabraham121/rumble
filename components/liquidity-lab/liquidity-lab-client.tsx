@@ -10,13 +10,18 @@ import {
   useSwitchChain,
   useWalletClient,
 } from "wagmi"
-import { isAddress, parseAbi, parseUnits, type Address } from "viem"
+import { isAddress, parseAbi, parseUnits, type Address, type Hex } from "viem"
 import { toast } from "sonner"
 import { base, baseSepolia } from "wagmi/chains"
+import type { Chain, PublicClient, WalletClient } from "viem"
 import { getArenaPoolOnChain } from "@/lib/trading/arena-pool-onchain"
 import type { RomboChainSlug } from "@/lib/rombo/chain-config"
 import { MINIMAL_LAB_TOKEN_ABI, MINIMAL_LAB_TOKEN_BYTECODE } from "@/lib/liquidity-lab/minimal-lab-token.generated"
-import { extractOrderedLpTransactionsClient } from "@/lib/liquidity-lab/lp-tx-from-response"
+import {
+  extractOrderedLpTransactionsClient,
+  mapLabUnsignedTx,
+  type LabUnsignedTx,
+} from "@/lib/liquidity-lab/lp-tx-from-response"
 import { WalletConnectSetupNote } from "@/components/liquidity-lab/walletconnect-setup-note"
 import {
   V4_NATIVE_CURRENCY,
@@ -50,6 +55,129 @@ function wideTickBounds(currentTick: number, feeTier: number): { tickLower: numb
 }
 
 const ERC20_DECIMALS_ABI = parseAbi(["function decimals() view returns (uint8)"])
+const ERC20_BALANCE_OF_ABI = parseAbi(["function balanceOf(address) view returns (uint256)"])
+
+/**
+ * Pick the EIP-712 primary type from a permit envelope. Uniswap returns `{domain,types,values}`
+ * without `primaryType`; Permit2 batch is `PermitBatch`, NFT permit is `Permit` / `PermitSingle`.
+ * Falls back to the first non-`EIP712Domain` key so we don't hard-code a structure.
+ */
+function pickEip712PrimaryType(types: Record<string, unknown>): string {
+  if (typeof types !== "object" || !types) return "PermitBatch"
+  if ("PermitBatch" in types) return "PermitBatch"
+  if ("PermitSingle" in types) return "PermitSingle"
+  if ("Permit" in types) return "Permit"
+  for (const k of Object.keys(types)) if (k !== "EIP712Domain") return k
+  return "PermitBatch"
+}
+
+type LpV4Permit = {
+  domain: Record<string, unknown>
+  types: Record<string, unknown>
+  values: Record<string, unknown>
+  primaryType?: string
+}
+
+/**
+ * Run the Uniswap LP approval flow before `/lp/create`:
+ * 1) `/lp/check_approval` with `{ walletAddress, protocol: "V4", chainId, lpTokens, action: "CREATE" }`.
+ * 2) Broadcast every ERC-20 → Permit2 approval `transactions[]` returned by the API.
+ * 3) Sign `v4BatchPermitData` (EIP-712 PermitBatch) so the LP multicall can settle Permit2 in-band.
+ * Without this, the LP multicall reverts with `AllowanceExpired(uint256)` (selector 0xd81b2f2e).
+ */
+async function prepareLpV4ApprovalsAndPermit(input: {
+  walletClient: WalletClient
+  publicClient: PublicClient
+  address: Address
+  chain: Chain
+  chainId: number
+  lpTokens: Array<{ tokenAddress: string; amount: string }>
+  action: "CREATE" | "INCREASE" | "DECREASE" | "MIGRATE"
+}): Promise<{ batchPermitData?: LpV4Permit; signature?: Hex }> {
+  const { walletClient, publicClient, address, chain, chainId, lpTokens, action } = input
+
+  const checkRes = await fetch("/api/liquidity/check-approval", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      walletAddress: address,
+      protocol: "V4",
+      chainId,
+      lpTokens,
+      action,
+      simulateTransaction: false,
+    }),
+  })
+  const checkJson = (await checkRes.json()) as Record<string, unknown>
+  if (!checkRes.ok) {
+    const err = typeof checkJson.error === "string" ? checkJson.error : "Check LP approval failed"
+    throw new Error(err)
+  }
+
+  const rawTxs = Array.isArray(checkJson.transactions) ? (checkJson.transactions as unknown[]) : []
+  const approvalTxs: LabUnsignedTx[] = []
+  for (const raw of rawTxs) {
+    if (raw && typeof raw === "object") {
+      const m = mapLabUnsignedTx(raw as Record<string, unknown>)
+      if (m) approvalTxs.push(m)
+    }
+  }
+  for (let i = 0; i < approvalTxs.length; i += 1) {
+    const tx = approvalTxs[i]
+    const hash = await walletClient.sendTransaction({
+      chain,
+      account: address,
+      to: tx.to,
+      data: tx.data,
+      value: tx.value ?? BigInt(0),
+      gas: tx.gas,
+      maxFeePerGas: tx.maxFeePerGas,
+      maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+    })
+    /** Wait so the next-call permit nonce + Permit2 contract spends the new allowance, not stale state. */
+    await publicClient.waitForTransactionReceipt({ hash })
+  }
+
+  const permit = checkJson.v4BatchPermitData
+  if (!permit || typeof permit !== "object") return {}
+  const p = permit as { domain?: unknown; types?: unknown; values?: unknown; primaryType?: unknown }
+  if (
+    !p.domain ||
+    typeof p.domain !== "object" ||
+    !p.types ||
+    typeof p.types !== "object" ||
+    !p.values ||
+    typeof p.values !== "object"
+  ) {
+    return {}
+  }
+  const types = p.types as Record<string, unknown>
+  const primaryType =
+    typeof p.primaryType === "string" && p.primaryType.length > 0
+      ? p.primaryType
+      : pickEip712PrimaryType(types)
+
+  /** viem `signTypedData` is heavily generic over a TypedData literal; the API gives us
+   * dynamic shapes, so cast the input — viem still serializes the EIP-712 envelope correctly. */
+  const signature = (await walletClient.signTypedData({
+    account: address,
+    domain: p.domain as never,
+    types: types as never,
+    primaryType: primaryType as never,
+    message: p.values as never,
+  } as never)) as Hex
+
+  return {
+    batchPermitData: {
+      domain: p.domain as Record<string, unknown>,
+      types,
+      values: p.values as Record<string, unknown>,
+      primaryType,
+    },
+    signature,
+  }
+}
 
 /** Raw token1/token0 ratio from human token1-per-token0 (display units). */
 function humanToRawRatio(human: number, dec0: number, dec1: number): number {
@@ -207,7 +335,37 @@ export function LiquidityLabClient() {
         amount: amountWei.toString(),
       }
 
-      const body = {
+      await switchChainAsync?.({ chainId: meta.chainId })
+      const chain = meta.chainId === base.id ? base : baseSepolia
+
+      let usdcBalance: bigint
+      try {
+        usdcBalance = (await publicClient.readContract({
+          address: usdcAddr,
+          abi: ERC20_BALANCE_OF_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        })) as bigint
+      } catch {
+        toast.error("Could not read USDC balance for approval check.")
+        return
+      }
+      if (usdcBalance === BigInt(0)) {
+        toast.error("Wallet holds 0 USDC on this chain — fund USDC before adding ETH+USDC liquidity.")
+        return
+      }
+
+      const { batchPermitData, signature } = await prepareLpV4ApprovalsAndPermit({
+        walletClient,
+        publicClient,
+        address: address as Address,
+        chain,
+        chainId: meta.chainId,
+        lpTokens: [{ tokenAddress: usdcAddr.toLowerCase(), amount: usdcBalance.toString() }],
+        action: "CREATE",
+      })
+
+      const body: Record<string, unknown> = {
         idempotencyKey: `liquidity-lab-${Date.now()}`,
         walletAddress: address,
         chainId: meta.chainId,
@@ -222,6 +380,8 @@ export function LiquidityLabClient() {
         },
         independentToken,
         tickBounds: { tickLower, tickUpper },
+        ...(batchPermitData ? { batchPermitData } : {}),
+        ...(signature ? { signature } : {}),
       }
 
       const lpRes = await fetch("/api/liquidity/create", {
@@ -241,10 +401,6 @@ export function LiquidityLabClient() {
         toast.error("No transactions in liquidity response — check API shape.")
         return
       }
-
-      await switchChainAsync?.({ chainId: meta.chainId })
-
-      const chain = meta.chainId === base.id ? base : baseSepolia
 
       let lastHash: `0x${string}` | undefined
       for (const tx of txs) {
@@ -393,6 +549,39 @@ export function LiquidityLabClient() {
         }
       }
 
+      await switchChainAsync?.({ chainId })
+      const chain = chainId === base.id ? base : baseSepolia
+
+      let erc20Balance: bigint
+      try {
+        erc20Balance = (await publicClient.readContract({
+          address: erc20,
+          abi: ERC20_BALANCE_OF_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        })) as bigint
+      } catch {
+        toast.error("Could not read ERC-20 balance for approval check.")
+        return
+      }
+      if (erc20Balance === BigInt(0)) {
+        toast.error("Wallet holds 0 of this ERC-20 — mint or fund some before pairing with ETH.")
+        return
+      }
+
+      const { batchPermitData, signature } = await prepareLpV4ApprovalsAndPermit({
+        walletClient,
+        publicClient,
+        address: address as Address,
+        chain,
+        chainId,
+        lpTokens: [{ tokenAddress: erc20.toLowerCase(), amount: erc20Balance.toString() }],
+        action: "CREATE",
+      })
+
+      if (batchPermitData) (body as Record<string, unknown>).batchPermitData = batchPermitData
+      if (signature) (body as Record<string, unknown>).signature = signature
+
       const lpRes = await fetch("/api/liquidity/create", {
         method: "POST",
         credentials: "same-origin",
@@ -410,10 +599,6 @@ export function LiquidityLabClient() {
         toast.error("No transactions in liquidity response.")
         return
       }
-
-      await switchChainAsync?.({ chainId })
-
-      const chain = chainId === base.id ? base : baseSepolia
 
       let lastHash: `0x${string}` | undefined
       for (const tx of txs) {

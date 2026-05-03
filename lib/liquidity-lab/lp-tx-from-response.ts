@@ -23,6 +23,15 @@ function hexQty(n: string | number | undefined): bigint | undefined {
   return BigInt(s)
 }
 
+/**
+ * Map a Uniswap unsigned-tx JSON object into a viem-compatible shape.
+ * Exported for callers that consume non-`create/increase/decrease` arrays
+ * (e.g. the `transactions[]` returned by `/lp/check_approval`).
+ */
+export function mapLabUnsignedTx(o: Record<string, unknown>): LabUnsignedTx | null {
+  return mapTx(o)
+}
+
 function mapTx(o: Record<string, unknown>): LabUnsignedTx | null {
   const to = typeof o.to === "string" ? (o.to as Address) : undefined
   const data = typeof o.data === "string" ? (o.data as Hex) : undefined
