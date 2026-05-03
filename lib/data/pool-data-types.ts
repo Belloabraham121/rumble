@@ -13,7 +13,7 @@ export type LivePricePayload = {
   displayUsd?: string
   tick?: string
   sqrtPriceX96?: string
-  source: "subgraph" | "stale"
+  source: "subgraph" | "chainlink" | "stale"
   stale?: boolean
   fetchedAt: string
 }
@@ -50,7 +50,7 @@ export type ArenaPoolsListRow = {
   totalValueLockedUsd?: string
   volumeUsd24h?: string
   feesUsd24h?: string
-  source: "subgraph" | "stale" | "unavailable"
+  source: "subgraph" | "chainlink" | "stale" | "unavailable"
   fetchedAt?: string
   stale?: boolean
 }

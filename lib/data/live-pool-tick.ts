@@ -11,6 +11,7 @@ import {
 } from "@/lib/integrations/uniswap/subgraph"
 import { DEFAULT_ROMBO_CHAIN_SLUG, slugFromChainId } from "@/lib/rombo/chain-config"
 import { getRomboServerEnv } from "@/lib/rombo/server-env"
+import { fetchArenaSpotUsdChainlink } from "@/lib/onchain/chainlink-feeds"
 import { getArenaPoolOnChain } from "@/lib/trading/arena-pool-onchain"
 
 export type ResolvedArenaPoolContext = {
@@ -142,6 +143,8 @@ export type ArenaPoolLiveSnapshot = {
   totalValueLockedUsd?: string
   volumeUsd24h?: string
   feesUsd24h?: string
+  /** Which upstream filled `displayUsd` first for this snapshot. */
+  source: "chainlink" | "subgraph"
   fetchedAt: Date
 }
 
@@ -150,78 +153,123 @@ export type RefreshPoolPriceOutcome =
       ok: true
       arenaPoolId: ArenaPoolId
       displayUsd?: string
-      source: "subgraph"
+      source: "chainlink" | "subgraph"
       /** Always set on success — use when Mongo is off or cache read returns null. */
       snapshot: ArenaPoolLiveSnapshot
     }
   | { ok: false; arenaPoolId: ArenaPoolId; reason: string }
 
-/** Fetch latest spot from subgraph, upsert cache when Mongo is available. Subgraph is the only live source today. */
+function supportsChainlinkSpot(chainId: number): boolean {
+  return chainId === 8453 || chainId === 84532
+}
+
+/**
+ * Refresh arena spot — **Chainlink first** on Base / Base Sepolia for live USD, subgraph
+ * optional for pool metadata / TVL / candles address.
+ */
 export async function refreshPoolPrice(
   arenaPoolId: ArenaPoolId,
   chainId?: number,
 ): Promise<RefreshPoolPriceOutcome> {
   const env = getRomboServerEnv()
-  if (!env.hasSubgraph) {
-    return { ok: false, arenaPoolId, reason: "UNISWAP_V3_SUBGRAPH_URL not configured" }
-  }
-
   const ctx = resolveArenaPoolContext(arenaPoolId, chainId)
   if (!ctx) return { ok: false, arenaPoolId, reason: "arena pool not configured for this chain" }
 
   const meta = getArenaPoolOnChain(arenaPoolId, ctx.chainSlug)
   if (!meta) return { ok: false, arenaPoolId, reason: "arena pool metadata missing" }
 
-  const spot = await fetchV3PoolSpotByPair({
-    token0Address: meta.token0.address,
-    token1Address: meta.token1.address,
-    feeTier: meta.feeTier,
-  })
-  if (!spot) return { ok: false, arenaPoolId, reason: "pool not found in subgraph" }
+  const chainlinkOk =
+    env.chainlinkSpotEnabled && supportsChainlinkSpot(ctx.chainId)
 
-  const displayUsd = resolveDisplayUsdForArena(spot, arenaPoolId)
+  let displayUsd: string | undefined
+  let outcomeSource: "chainlink" | "subgraph" = "subgraph"
+
+  if (chainlinkOk) {
+    const cl = await fetchArenaSpotUsdChainlink({
+      arenaPoolId,
+      chainId: ctx.chainId,
+      rpcUrlOverride: env.romboRpcUrl,
+    })
+    if (cl?.displayUsd && positiveUsdString(cl.displayUsd)) {
+      displayUsd = cl.displayUsd
+      outcomeSource = "chainlink"
+    }
+  }
+
+  let spot: SubgraphPoolSpot | null = null
+  if (env.hasSubgraph) {
+    try {
+      spot = await fetchV3PoolSpotByPair({
+        token0Address: meta.token0.address,
+        token1Address: meta.token1.address,
+        feeTier: meta.feeTier,
+      })
+    } catch {
+      spot = null
+    }
+  }
+
+  if (!displayUsd && spot) {
+    displayUsd = resolveDisplayUsdForArena(spot, arenaPoolId)
+    outcomeSource = "subgraph"
+  }
+
+  if (!displayUsd || !positiveUsdString(displayUsd)) {
+    return {
+      ok: false,
+      arenaPoolId,
+      reason:
+        !env.hasSubgraph && !chainlinkOk
+          ? "Set ROMBO_RPC_URL on Base/Base Sepolia for Chainlink, or UNISWAP_V3_SUBGRAPH_URL"
+          : "no spot price from Chainlink or subgraph",
+    }
+  }
+
   const fetchedAt = new Date()
+  const poolAddress = spot?.poolAddress ?? "0x0000000000000000000000000000000000000000"
+  const upsertSource = outcomeSource === "chainlink" ? "chainlink" : "subgraph"
 
   await upsertPoolPrice({
     chainId: ctx.chainId,
     arenaPoolId,
-    poolAddress: spot.poolAddress,
-    token0Price: spot.token0Price,
-    token1Price: spot.token1Price,
-    token0PriceUsd: spot.token0PriceUsd,
-    token1PriceUsd: spot.token1PriceUsd,
+    poolAddress,
+    token0Price: spot?.token0Price ?? "0",
+    token1Price: spot?.token1Price ?? "0",
+    token0PriceUsd: spot?.token0PriceUsd,
+    token1PriceUsd: spot?.token1PriceUsd,
     displayUsd,
-    tick: spot.tick,
-    sqrtPriceX96: spot.sqrtPriceX96,
-    token0Symbol: spot.token0.symbol,
-    token1Symbol: spot.token1.symbol,
-    totalValueLockedUsd: spot.totalValueLockedUsd,
-    volumeUsd24h: spot.volumeUsd24h,
-    feesUsd24h: spot.feesUsd24h,
-    source: "subgraph",
+    tick: spot?.tick,
+    sqrtPriceX96: spot?.sqrtPriceX96,
+    token0Symbol: spot?.token0.symbol ?? meta.token0.symbol,
+    token1Symbol: spot?.token1.symbol ?? meta.token1.symbol,
+    totalValueLockedUsd: spot?.totalValueLockedUsd,
+    volumeUsd24h: spot?.volumeUsd24h,
+    feesUsd24h: spot?.feesUsd24h,
+    source: upsertSource,
     fetchedAt,
   })
 
   const snapshot: ArenaPoolLiveSnapshot = {
     arenaPoolId,
     chainId: ctx.chainId,
-    poolAddress: spot.poolAddress,
-    token0Price: spot.token0Price,
-    token1Price: spot.token1Price,
-    token0PriceUsd: spot.token0PriceUsd,
-    token1PriceUsd: spot.token1PriceUsd,
+    poolAddress,
+    token0Price: spot?.token0Price ?? "0",
+    token1Price: spot?.token1Price ?? "0",
+    token0PriceUsd: spot?.token0PriceUsd,
+    token1PriceUsd: spot?.token1PriceUsd,
     displayUsd,
-    tick: spot.tick,
-    sqrtPriceX96: spot.sqrtPriceX96,
-    token0Symbol: spot.token0.symbol,
-    token1Symbol: spot.token1.symbol,
-    totalValueLockedUsd: spot.totalValueLockedUsd,
-    volumeUsd24h: spot.volumeUsd24h,
-    feesUsd24h: spot.feesUsd24h,
+    tick: spot?.tick,
+    sqrtPriceX96: spot?.sqrtPriceX96,
+    token0Symbol: spot?.token0.symbol ?? meta.token0.symbol,
+    token1Symbol: spot?.token1.symbol ?? meta.token1.symbol,
+    totalValueLockedUsd: spot?.totalValueLockedUsd,
+    volumeUsd24h: spot?.volumeUsd24h,
+    feesUsd24h: spot?.feesUsd24h,
+    source: outcomeSource,
     fetchedAt,
   }
 
-  return { ok: true, arenaPoolId, displayUsd, source: "subgraph", snapshot }
+  return { ok: true, arenaPoolId, displayUsd, source: outcomeSource, snapshot }
 }
 
 /** Runs `refreshPoolPrice` for every arena pool on the default chain. */
@@ -252,16 +300,39 @@ export async function refreshPoolCandles(input: {
   const ctx = resolveArenaPoolContext(input.arenaPoolId, input.chainId)
   if (!ctx) return { ok: false, arenaPoolId: input.arenaPoolId, reason: "arena pool not configured for this chain" }
 
+  const ZERO_POOL = "0x0000000000000000000000000000000000000000"
   const cached = await getPoolPrice({ chainId: ctx.chainId, arenaPoolId: input.arenaPoolId })
   let poolAddress = cached?.poolAddress
 
-  if (!poolAddress) {
-    // Warm the pool address by refreshing spot once.
+  const missingPool =
+    !poolAddress || poolAddress.toLowerCase() === ZERO_POOL
+
+  if (missingPool) {
     const warm = await refreshPoolPrice(input.arenaPoolId, input.chainId)
     if (!warm.ok) return { ok: false, arenaPoolId: input.arenaPoolId, reason: warm.reason }
     const re = await getPoolPrice({ chainId: ctx.chainId, arenaPoolId: input.arenaPoolId })
     poolAddress = re?.poolAddress
-    if (!poolAddress) return { ok: false, arenaPoolId: input.arenaPoolId, reason: "pool address missing after refresh" }
+    if (
+      !poolAddress ||
+      poolAddress.toLowerCase() === ZERO_POOL
+    ) {
+      return {
+        ok: false,
+        arenaPoolId: input.arenaPoolId,
+        reason: "pool contract address needs subgraph — Chainlink spot alone cannot resolve pool id for candles",
+      }
+    }
+  }
+
+  if (
+    !poolAddress ||
+    poolAddress.toLowerCase() === ZERO_POOL
+  ) {
+    return {
+      ok: false,
+      arenaPoolId: input.arenaPoolId,
+      reason: "pool address unavailable",
+    }
   }
 
   const rows = await fetchV3PoolCandles({

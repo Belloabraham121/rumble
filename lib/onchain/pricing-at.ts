@@ -2,15 +2,29 @@ import "server-only"
 
 import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import { getPoolPrice } from "@/lib/data/pool-prices.repo"
+import { fetchArenaSpotUsdChainlink } from "@/lib/onchain/chainlink-feeds"
 import { getRomboServerEnv } from "@/lib/rombo/server-env"
 import type { PriceSymbol } from "@/lib/trading/token-meta"
 
 /**
- * Spot ETH/USD for translating gas costs — subgraph pool cache when available,
- * else `ROMBO_ETH_USD_REF`, else a conservative default.
+ * Spot ETH/USD for translating gas costs — Chainlink on Base / Base Sepolia, then
+ * pool cache, else `ROMBO_ETH_USD_REF`, else a conservative default.
  */
 export async function getEthUsdSpot(): Promise<number> {
   const env = getRomboServerEnv()
+  if (
+    env.chainlinkSpotEnabled &&
+    (env.defaultChainId === 8453 || env.defaultChainId === 84532)
+  ) {
+    const cl = await fetchArenaSpotUsdChainlink({
+      arenaPoolId: "eth-usdc",
+      chainId: env.defaultChainId,
+      rpcUrlOverride: env.romboRpcUrl,
+    })
+    const n = cl?.displayUsd ? Number.parseFloat(cl.displayUsd) : NaN
+    if (Number.isFinite(n) && n > 0) return n
+  }
+
   const explicit = env.romboEthUsdRef
   if (explicit !== undefined && Number.isFinite(explicit) && explicit > 0) {
     return explicit
@@ -48,6 +62,18 @@ export async function getRefPriceAtTime(input: { symbol: PriceSymbol; timestampM
   }
 
   if (input.symbol === "WBTC") {
+    if (
+      env.chainlinkSpotEnabled &&
+      (env.defaultChainId === 8453 || env.defaultChainId === 84532)
+    ) {
+      const cl = await fetchArenaSpotUsdChainlink({
+        arenaPoolId: "wbtc-eth",
+        chainId: env.defaultChainId,
+        rpcUrlOverride: env.romboRpcUrl,
+      })
+      const cn = cl?.displayUsd ? Number.parseFloat(cl.displayUsd) : NaN
+      if (Number.isFinite(cn) && cn > 0) return cn
+    }
     const doc = await getPoolPrice({
       chainId: env.defaultChainId,
       arenaPoolId: "wbtc-eth" satisfies ArenaPoolId,

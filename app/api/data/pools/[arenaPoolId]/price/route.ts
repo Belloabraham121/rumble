@@ -24,22 +24,26 @@ export async function GET(
   const poolId = arenaPoolId as ArenaPoolId
   const env = getRomboServerEnv()
 
-  if (!env.hasMongo && !env.hasSubgraph) {
-    return NextResponse.json(
-      {
-        error:
-          "Configure MONGODB_URI and/or UNISWAP_V3_SUBGRAPH_URL (with THE_GRAPH_API_KEY for gateway.thegraph.com) so pool prices can be loaded.",
-        code: "NO_DATA_SOURCE",
-      },
-      { status: 503 },
-    )
-  }
-
   const ctx = resolveArenaPoolContext(poolId)
   if (!ctx) {
     return NextResponse.json(
       { error: "Arena pool not configured for the default chain" },
       { status: 404 },
+    )
+  }
+
+  const chainlinkCan =
+    env.chainlinkSpotEnabled &&
+    (ctx.chainId === 8453 || ctx.chainId === 84532)
+
+  if (!env.hasMongo && !env.hasSubgraph && !chainlinkCan) {
+    return NextResponse.json(
+      {
+        error:
+          "Configure MONGODB_URI, UNISWAP_V3_SUBGRAPH_URL, or use Base/Base Sepolia with Chainlink spot (ROMBO_RPC_URL optional; feeds use public Base RPC by default).",
+        code: "NO_DATA_SOURCE",
+      },
+      { status: 503 },
     )
   }
 
@@ -50,7 +54,7 @@ export async function GET(
   let subgraphReason: string | undefined
   let subgraphFetchError: string | undefined
 
-  if (!isPoolPriceFresh(cached) && env.hasSubgraph) {
+  if (!isPoolPriceFresh(cached) && (env.hasSubgraph || chainlinkCan)) {
     try {
       const outcome = await refreshPoolPrice(poolId)
       if (outcome.ok) {
@@ -79,23 +83,23 @@ export async function GET(
           ? subgraphFetchError
           : subgraphReason
             ? subgraphReason
-            : env.hasSubgraph
+            : chainlinkCan || env.hasSubgraph
               ? "Pool price unavailable — see subgraphReason / pipeline."
-              : "Subgraph not configured — set UNISWAP_V3_SUBGRAPH_URL.",
+              : "No price source — enable subgraph or Chainlink on Base.",
         code: subgraphFetchError
           ? "SUBGRAPH_HTTP_OR_GRAPHQL"
           : subgraphReason
             ? "SUBGRAPH_REFRESH_FAILED"
-            : env.hasSubgraph
+            : chainlinkCan || env.hasSubgraph
               ? "NO_POOL_PRICE"
               : "NO_SUBGRAPH",
-        configured: env.hasSubgraph,
+        configured: env.hasSubgraph || chainlinkCan,
         hasMongo: env.hasMongo,
         arenaPoolId: poolId,
         chainId: ctx.chainId,
         chainSlug: ctx.chainSlug,
         pipeline:
-          "POST UNISWAP_V3_SUBGRAPH_URL → Uniswap V3 `pools(where:{token0,token1,feeTier})` using `lib/trading/arena-pool-onchain.ts` token addresses for `chainSlug`; USD via bundle ETH×derivedETH.",
+          "Primary: Chainlink Aggregator `latestRoundData` on Base / Base Sepolia (`lib/onchain/chainlink-feeds.ts`). Fallback / enrichment: Uniswap V3 subgraph when UNISWAP_V3_SUBGRAPH_URL is set.",
         subgraphReason,
         hint: chainMismatchHint,
       },
@@ -105,11 +109,17 @@ export async function GET(
 
   const fresh = isPoolPriceFresh(doc)
 
+  const spotSource =
+    "source" in doc && doc.source === "chainlink" ? "chainlink" : "subgraph"
+
   return NextResponse.json({
     arenaPoolId: poolId,
     chainId: doc.chainId,
     chainSlug: ctx.chainSlug,
-    upstream: "uniswap-v3-subgraph",
+    upstream:
+      spotSource === "chainlink"
+        ? "chainlink-usd-feed"
+        : "uniswap-v3-subgraph",
     poolAddress: doc.poolAddress,
     token0Symbol: doc.token0Symbol,
     token1Symbol: doc.token1Symbol,
@@ -120,7 +130,7 @@ export async function GET(
     displayUsd: doc.displayUsd,
     tick: doc.tick,
     sqrtPriceX96: doc.sqrtPriceX96,
-    source: fresh ? "subgraph" : "stale",
+    source: fresh ? spotSource : "stale",
     stale: !fresh,
     fetchedAt: doc.fetchedAt.toISOString(),
   })

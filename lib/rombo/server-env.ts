@@ -107,6 +107,8 @@ const schema = z.object({
   ROMBO_OPENAI_MODEL: z.string().optional(),
   /** Set to `false` to use rule-based box matching only. */
   ROMBO_LLM_AGENT_ENABLED: z.string().optional(),
+  /** When not `false`, arena spot USD prefers Chainlink feeds on Base / Base Sepolia (`lib/onchain/chainlink-feeds.ts`). */
+  ROMBO_CHAINLINK_SPOT_ENABLED: z.string().optional(),
 })
 
 export type RomboServerEnv = {
@@ -156,6 +158,8 @@ export type RomboServerEnv = {
   openAiApiKey?: string
   openAiModel: string
   llmAgentEnabled: boolean
+  /** Default true — spot prices use Chainlink when RPC + chain feeds exist. */
+  chainlinkSpotEnabled: boolean
 }
 
 function chainIdForTarget(network: "testnet" | "mainnet", explicit?: number): number {
@@ -169,7 +173,12 @@ export function getRomboServerEnv(): RomboServerEnv {
   const parsed = schema.safeParse(process.env)
   const data = parsed.success
     ? parsed.data
-    : { ROMBO_TARGET_NETWORK: "testnet" as const, ROMBO_AGENT_RUNTIME_EXECUTE_SWAPS: undefined as string | undefined, ROMBO_RPC_URL: undefined as string | undefined }
+    : {
+        ROMBO_TARGET_NETWORK: "testnet" as const,
+        ROMBO_AGENT_RUNTIME_EXECUTE_SWAPS: undefined as string | undefined,
+        ROMBO_RPC_URL: undefined as string | undefined,
+        ROMBO_CHAINLINK_SPOT_ENABLED: undefined as string | undefined,
+      }
 
   const targetNetwork = data.ROMBO_TARGET_NETWORK ?? "testnet"
   const defaultChainId = chainIdForTarget(
@@ -205,6 +214,8 @@ export function getRomboServerEnv(): RomboServerEnv {
   const openAiModel = data.ROMBO_OPENAI_MODEL?.trim() || "gpt-4o-mini"
   const llmAgentEnabled =
     Boolean(openAiApiKey) && data.ROMBO_LLM_AGENT_ENABLED?.trim().toLowerCase() !== "false"
+  const chainlinkSpotEnabled =
+    data.ROMBO_CHAINLINK_SPOT_ENABLED?.trim().toLowerCase() !== "false"
 
   return {
     targetNetwork,
@@ -236,6 +247,7 @@ export function getRomboServerEnv(): RomboServerEnv {
     openAiApiKey,
     openAiModel,
     llmAgentEnabled,
+    chainlinkSpotEnabled,
   }
 }
 

@@ -371,7 +371,8 @@ export function DashboardWorkspace({ agentId }: Props) {
                       Number.isFinite(usd) &&
                       usd > 0;
                     const dotClass =
-                      row?.source === "subgraph" && !row?.stale
+                      (row?.source === "subgraph" || row?.source === "chainlink") &&
+                      !row?.stale
                         ? "bg-emerald-500"
                         : row?.source === "stale"
                           ? "bg-amber-500"

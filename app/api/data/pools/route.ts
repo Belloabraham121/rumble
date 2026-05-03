@@ -22,7 +22,7 @@ export type ArenaPoolPriceRow = {
   totalValueLockedUsd?: string
   volumeUsd24h?: string
   feesUsd24h?: string
-  source: "subgraph" | "stale" | "unavailable"
+  source: "subgraph" | "chainlink" | "stale" | "unavailable"
   fetchedAt?: string
   stale?: boolean
 }
@@ -53,7 +53,11 @@ export async function GET() {
       : null
     let liveSnapshot: ArenaPoolLiveSnapshot | undefined
 
-    if (!isPoolPriceFresh(cached) && env.hasSubgraph) {
+    const chainlinkCan =
+      env.chainlinkSpotEnabled &&
+      (ctx.chainId === 8453 || ctx.chainId === 84532)
+
+    if (!isPoolPriceFresh(cached) && (env.hasSubgraph || chainlinkCan)) {
       const outcome = await refreshPoolPrice(pool.id as ArenaPoolId)
       if (outcome.ok) {
         liveSnapshot = outcome.snapshot
@@ -67,6 +71,8 @@ export async function GET() {
     const fresh = isPoolPriceFresh(doc)
 
     if (doc) {
+      const rowSource =
+        "source" in doc && doc.source === "chainlink" ? "chainlink" : "subgraph"
       rows.push({
         arenaPoolId: pool.id as ArenaPoolId,
         chainId: ctx.chainId,
@@ -80,7 +86,7 @@ export async function GET() {
         totalValueLockedUsd: doc.totalValueLockedUsd,
         volumeUsd24h: doc.volumeUsd24h,
         feesUsd24h: doc.feesUsd24h,
-        source: fresh ? "subgraph" : "stale",
+        source: fresh ? rowSource : "stale",
         fetchedAt: doc.fetchedAt.toISOString(),
         stale: !fresh,
       })

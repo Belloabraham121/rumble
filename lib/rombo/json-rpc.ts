@@ -130,3 +130,25 @@ export async function erc20BalanceOfRaw(
   if (typeof r !== "string" || !r.startsWith("0x") || r.length <= 2) return BigInt(0)
   return hexToBigInt(r)
 }
+
+/** Generic `eth_call` — `data` is hex-encoded calldata (e.g. `0xfeaf968c` + args). */
+export async function ethCall(rpcUrl: string, to: string, data: `0x${string}`): Promise<string> {
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_call",
+      params: [{ to, data }, "latest"],
+    }),
+  })
+  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`)
+  const json = (await res.json()) as { result?: string; error?: { message?: string } }
+  if (json.error?.message) throw new Error(json.error.message)
+  const r = json.result
+  if (typeof r !== "string" || !r.startsWith("0x")) {
+    throw new Error("eth_call returned empty result")
+  }
+  return r
+}

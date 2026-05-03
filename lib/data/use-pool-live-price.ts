@@ -21,7 +21,7 @@ export type UsePoolLivePriceResult = {
   /** True when backend has no live data yet (subgraph unset or cron not warmed). */
   unavailable: boolean
   stale: boolean
-  source: "subgraph" | "stale" | "unavailable"
+  source: "subgraph" | "chainlink" | "stale" | "unavailable"
   fetchedAt: Date | null
   refresh: () => void
 }

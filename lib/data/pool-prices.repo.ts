@@ -30,7 +30,7 @@ export type PoolPriceDoc = {
   volumeUsd24h?: string
   feesUsd24h?: string
   /** Where the price came from; "stale" only for debug when the upstream fails. */
-  source: "subgraph" | "quoter" | "stale"
+  source: "subgraph" | "chainlink" | "quoter" | "stale"
   fetchedAt: Date
 }
 
