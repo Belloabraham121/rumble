@@ -8,7 +8,16 @@ type Props = {
   selectedTargetId: string | null
   onSelectTarget: (id: string | null) => void
   betAmount: string
+  /**
+   * Full freeze: stops the RAF loop (chart + arena). Use only when the canvas must not
+   * animate at all (e.g. base layer hidden under overlay).
+   */
   paused?: boolean
+  /**
+   * Arena/game freeze only: stops scrolling boxes, spawns, and hit resolution — the live
+   * price trail and head still update so the graph keeps moving while the agent is paused.
+   */
+  arenaPaused?: boolean
   /** Canonical arena pool — drives chart scaling + quote (`mechanics.md`). */
   poolId?: string
   onPriceUpdate?: (usdPrice: number) => void
@@ -89,6 +98,7 @@ export function AgentChartCanvas({
   onSelectTarget,
   betAmount,
   paused = false,
+  arenaPaused = false,
   poolId = "eth-usdc",
   onPriceUpdate,
   serverArenaFlash = null,
@@ -139,19 +149,26 @@ export function AgentChartCanvas({
   const nextLatticeRef = useRef(GRID_COLS + 1)
   const idRef = useRef(1000)
 
-  const liveMode = liveUsdPrice != null
-
+  /**
+   * Always derive vertical scale from the actual series — never assume “sim” 38–68 when
+   * `liveUsdPrice` is null. Otherwise USD-sized `history`/`currentP` (e.g. base chart
+   * while overlay steals `liveUsdPrice`, or a brief poll gap) map to Y outside the
+   * viewBox and the green trail looks “gone”.
+   */
   const { minP, maxP } = useMemo(() => {
-    if (!liveMode) return { minP: 38, maxP: 68 }
-    const prices: number[] = history.map((h) => h.p)
-    if (liveUsdPrice != null) prices.push(liveUsdPrice)
+    const prices: number[] = []
+    for (const h of history) {
+      if (Number.isFinite(h.p)) prices.push(h.p)
+    }
+    if (Number.isFinite(currentP)) prices.push(currentP)
+    if (liveUsdPrice != null && Number.isFinite(liveUsdPrice)) prices.push(liveUsdPrice)
     if (prices.length === 0) return { minP: 38, maxP: 68 }
     const lo = Math.min(...prices)
     const hi = Math.max(...prices)
     const span = Math.max(hi - lo, Math.abs(hi) * 0.005 || 1)
     const pad = span * 0.25
     return { minP: lo - pad, maxP: hi + pad }
-  }, [liveMode, history, liveUsdPrice])
+  }, [history, currentP, liveUsdPrice])
 
   const headY = priceToY(currentP, minP, maxP)
   const activeRow = rowForPrice(currentP, minP, maxP)
@@ -161,13 +178,30 @@ export function AgentChartCanvas({
 
   /** Share latest values with the RAF loop without retriggering it on every tick. */
   const liveUsdPriceRef = useRef<number | null>(liveUsdPrice)
+  /**
+   * Last good chart USD (live poll or seeded close). When the poll is still in flight, `liveUsdPrice`
+   * can be null while `liveSeedUsdPrices` has already filled `history` with ~3000-level closes.
+   * Without this, the RAF branch treats that as “sim mode” and appends ~38–68 sim points every frame,
+   * collapsing the Y scale so the green trail looks invisible (flat line at the bottom).
+   */
+  const stableChartUsdRef = useRef<number | null>(null)
   const priceRangeRef = useRef({ minP, maxP })
   useEffect(() => {
     liveUsdPriceRef.current = liveUsdPrice
   }, [liveUsdPrice])
   useEffect(() => {
+    if (liveUsdPrice != null && Number.isFinite(liveUsdPrice)) {
+      stableChartUsdRef.current = liveUsdPrice
+    }
+  }, [liveUsdPrice])
+  useEffect(() => {
     priceRangeRef.current = { minP, maxP }
   }, [minP, maxP])
+
+  const arenaPausedRef = useRef(arenaPaused)
+  useEffect(() => {
+    arenaPausedRef.current = arenaPaused
+  }, [arenaPaused])
 
   /**
    * Trail across the left band (gl → headX), always terminating at the head dot so the
@@ -198,7 +232,13 @@ export function AgentChartCanvas({
     const seeded = liveSeedUsdPrices.slice(-120).map((p, i) => ({ x: i, p }))
     setHistory(seeded)
     const last = seeded[seeded.length - 1]
-    if (last) setCurrentP(last.p)
+    if (last) {
+      setCurrentP(last.p)
+      // Hold trail at candle resolution until the live poll catches up (see stableChartUsdRef).
+      if (liveUsdPriceRef.current == null) {
+        stableChartUsdRef.current = last.p
+      }
+    }
   }, [liveSeedUsdPrices])
 
   /**
@@ -228,12 +268,14 @@ export function AgentChartCanvas({
 
     const loop = () => {
       tRef.current += 1
-      const live = liveUsdPriceRef.current
+      const polled = liveUsdPriceRef.current
+      const held = stableChartUsdRef.current
+      const live = polled ?? held
       const { minP: liveMinP, maxP: liveMaxP } = priceRangeRef.current
 
       let next: number
       let reportedUsd: number
-      if (live != null) {
+      if (live != null && Number.isFinite(live)) {
         next = live
         reportedUsd = live
       } else {
@@ -256,62 +298,58 @@ export function AgentChartCanvas({
         return [...h, { x: lastX + 1, p: next }].slice(-120)
       })
 
-      // Advance global scroll. All boxes share the same fractional offset,
-      // so they always tile perfectly into integer-wide cells.
-      scrollRef.current += BOX_SPEED
-      const scroll = scrollRef.current
-      setScrollOffset(scroll)
+      const arenaOff = arenaPausedRef.current
+      if (!arenaOff) {
+        // Advance global scroll. All boxes share the same fractional offset,
+        // so they always tile perfectly into integer-wide cells.
+        scrollRef.current += BOX_SPEED
+        const scroll = scrollRef.current
+        setScrollOffset(scroll)
 
-      // --- Compute new waves imperatively (outside the state updater). ---
-      // React 18 StrictMode invokes state updaters twice in dev to surface
-      // impurity, so we MUST NOT mutate refs (`nextLatticeRef`, `idRef`) or
-      // fire other setters from inside `setTargets(prev => ...)`. Doing so
-      // caused `nextLatticeRef` to race ahead of actual spawns and spawning
-      // would visibly stall for seconds at a time.
-      const newBoxes: TargetBox[] = []
-      while (nextLatticeRef.current - scroll <= GRID_COLS + 2) {
-        const lattice = nextLatticeRef.current
-        for (let row = 0; row < GRID_ROWS; row++) {
-          idRef.current += 1
-          newBoxes.push({
-            id: `t-${idRef.current}`,
-            row,
-            lattice,
-            mult: pickMultiplier(row),
-            resolved: false,
-            hit: false,
-          })
+        // --- Compute new waves imperatively (outside the state updater). ---
+        const newBoxes: TargetBox[] = []
+        while (nextLatticeRef.current - scroll <= GRID_COLS + 2) {
+          const lattice = nextLatticeRef.current
+          for (let row = 0; row < GRID_ROWS; row++) {
+            idRef.current += 1
+            newBoxes.push({
+              id: `t-${idRef.current}`,
+              row,
+              lattice,
+              mult: pickMultiplier(row),
+              resolved: false,
+              hit: false,
+            })
+          }
+          nextLatticeRef.current += SPAWN_GAP
         }
-        nextLatticeRef.current += SPAWN_GAP
-      }
 
-      // Pure updater: derives new array from `prev` and the captured
-      // `scroll` / `newBoxes` / `nextRow` closures only. Safe to run twice.
-      let flashed: { label: string; at: number } | null = null
-      setTargets(prev => {
-        const moved: TargetBox[] = []
-        for (const b of prev) {
-          const effectiveCol = b.lattice - scroll
-          let resolved = b.resolved
-          let hit = b.hit
-          if (!resolved && effectiveCol <= HEAD_COL) {
-            resolved = true
-            hit = b.row === nextRow
-            if (hit) {
-              const payout = safeBet > 0 ? (safeBet * b.mult).toFixed(4) : "0.0000"
-              flashed = {
-                label: `+${payout} ETH · x${b.mult.toFixed(2)}`,
-                at: Date.now(),
+        let flashed: { label: string; at: number } | null = null
+        setTargets(prev => {
+          const moved: TargetBox[] = []
+          for (const b of prev) {
+            const effectiveCol = b.lattice - scroll
+            let resolved = b.resolved
+            let hit = b.hit
+            if (!resolved && effectiveCol <= HEAD_COL) {
+              resolved = true
+              hit = b.row === nextRow
+              if (hit) {
+                const payout = safeBet > 0 ? (safeBet * b.mult).toFixed(4) : "0.0000"
+                flashed = {
+                  label: `+${payout} ETH · x${b.mult.toFixed(2)}`,
+                  at: Date.now(),
+                }
               }
             }
+            if (effectiveCol < -0.8) continue
+            moved.push({ ...b, resolved, hit })
           }
-          if (effectiveCol < -0.8) continue
-          moved.push({ ...b, resolved, hit })
-        }
-        if (newBoxes.length > 0) moved.push(...newBoxes)
-        return moved
-      })
-      if (flashed) setHitFlash(flashed)
+          if (newBoxes.length > 0) moved.push(...newBoxes)
+          return moved
+        })
+        if (flashed) setHitFlash(flashed)
+      }
 
       rafRef.current = requestAnimationFrame(loop)
     }
@@ -334,13 +372,14 @@ export function AgentChartCanvas({
   }, [targets, selectedTargetId, onSelectTarget])
 
   useEffect(() => {
+    if (arenaPaused) return
     if (!serverArenaFlash?.hit) return
     const payout = serverArenaFlash.payoutEth.toFixed(4)
     setHitFlash({
       label: `+${payout} ETH · x${serverArenaFlash.mult.toFixed(2)}`,
       at: serverArenaFlash.at,
     })
-  }, [serverArenaFlash?.at])
+  }, [arenaPaused, serverArenaFlash?.at])
 
   return (
     <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col rounded-[28px] border-2 border-black/10 bg-white shadow-[0_40px_120px_rgba(0,0,0,0.08)] overflow-hidden">
@@ -392,6 +431,23 @@ export function AgentChartCanvas({
           return <line key={`h-${i}`} x1={gl} y1={y} x2={gl + HEAD_COL * cellW} y2={y} stroke={T.gridStrong} strokeWidth="1" />
         })}
 
+        {/* Trail paints first so it sits behind scrolling cells + head dot (SVG paint order). */}
+        <path
+          d={`${pathD} L ${headX} ${H - PAD.b} L ${gl} ${H - PAD.b} Z`}
+          fill={`url(#${areaFillId})`}
+          opacity={0.72}
+        />
+        <path
+          d={pathD}
+          fill="none"
+          stroke={T.accentBright}
+          strokeWidth="3.25"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeOpacity={0.98}
+          filter={`url(#${lineGlowId})`}
+        />
+
         {/* Scrolling target boxes — every lattice index renders exactly one box
             per row, and all boxes share the same fractional scroll offset, so
             they tile perfectly and never overlap each other. */}
@@ -436,9 +492,15 @@ export function AgentChartCanvas({
                 stroke={stroke}
                 strokeWidth={highlight ? 1.75 : 1}
                 style={{ filter: highlight ? `url(#${cellGlowLightId})` : undefined }}
-                className={b.resolved ? "" : "cursor-pointer"}
+                className={
+                  b.resolved
+                    ? ""
+                    : arenaPaused
+                      ? "cursor-not-allowed opacity-[0.72]"
+                      : "cursor-pointer"
+                }
                 onClick={e => {
-                  if (b.resolved) return
+                  if (arenaPaused || b.resolved) return
                   e.stopPropagation()
                   onSelectTarget(isSelected ? null : b.id)
                 }}
@@ -482,25 +544,6 @@ export function AgentChartCanvas({
             </g>
           )
         })}
-
-        {/* Trail fill — pathD always ends at the head; close down to baseline for area */}
-        <path
-          d={`${pathD} L ${headX} ${H - PAD.b} L ${gl} ${H - PAD.b} Z`}
-          fill={`url(#${areaFillId})`}
-          opacity={0.72}
-        />
-
-        {/* Trail line — drawn above scrolling boxes so it stays visible in the trail columns */}
-        <path
-          d={pathD}
-          fill="none"
-          stroke={T.accentBright}
-          strokeWidth="3.25"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeOpacity={0.98}
-          filter={`url(#${lineGlowId})`}
-        />
 
         {/* Head column marker */}
         <line

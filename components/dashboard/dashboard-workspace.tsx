@@ -306,14 +306,17 @@ export function DashboardWorkspace({ agentId }: Props) {
                   selectedTargetId={selectedTargetId}
                   onSelectTarget={setSelectedTargetId}
                   betAmount={betAmount}
-                  paused={
-                    agentStatus !== "running" || !!overlayChartPoolId
-                  }
+                  paused={!!overlayChartPoolId}
+                  arenaPaused={agentStatus !== "running"}
                   onPriceUpdate={
                     overlayChartPoolId ? undefined : setLivePrice
                   }
                   serverArenaFlash={
-                    overlayChartPoolId ? null : arenaFlash
+                    overlayChartPoolId
+                      ? null
+                      : agentStatus === "running"
+                        ? arenaFlash
+                        : null
                   }
                   liveUsdPrice={
                     overlayChartPoolId ? null : chartLiveUsd
@@ -337,9 +340,12 @@ export function DashboardWorkspace({ agentId }: Props) {
                     selectedTargetId={selectedTargetId}
                     onSelectTarget={setSelectedTargetId}
                     betAmount={betAmount}
-                    paused={agentStatus !== "running"}
+                    paused={false}
+                    arenaPaused={agentStatus !== "running"}
                     onPriceUpdate={setLivePrice}
-                    serverArenaFlash={arenaFlash}
+                    serverArenaFlash={
+                      agentStatus === "running" ? arenaFlash : null
+                    }
                     liveUsdPrice={chartLiveUsd}
                     liveSeedUsdPrices={overlaySeedCloses}
                   />
