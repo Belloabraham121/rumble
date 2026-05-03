@@ -9,6 +9,8 @@ export const COLLECTIONS = {
   walletChainNonces: "wallet_chain_nonces",
   /** Agent LP positions — NFT token id keyed by agent + arena pool (+ chain). */
   lpPositions: "lp_positions",
+  /** User-deployed Uniswap v4 lab pools (auto-registered on successful `/lp/create`). */
+  labPools: "lab_pools",
   /** Cached Uniswap V3 pool stats from subgraph / data APIs (TVL, volume, fees). */
   indexedPoolSnapshots: "indexed_pool_snapshots",
   /** Live pool spot prices (short-retention cache, TTL-swept). */

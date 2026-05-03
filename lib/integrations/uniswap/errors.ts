@@ -94,12 +94,14 @@ export function classifyUniswapHttpFailure(input: ClassifyUniswapFailureInput): 
         : "No quote (HTTP 404) — empty response body. See Uniswap supported chains, token addresses, and pool liquidity."
       return new RomboUniswapError(UNISWAP_ERROR_CODES.NO_QUOTE, msg, { httpStatus, requestId })
     }
-    case 500:
+    case 500: {
+      const detail = bodyText.trim().slice(0, 500)
       return new RomboUniswapError(
         UNISWAP_ERROR_CODES.SERVER_ERROR,
-        "Uniswap API server error (500). Retry with backoff.",
+        detail || "Uniswap API server error (500). Retry with backoff.",
         { httpStatus, requestId },
       )
+    }
     case 504:
       return new RomboUniswapError(
         UNISWAP_ERROR_CODES.GATEWAY_TIMEOUT,

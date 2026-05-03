@@ -11,6 +11,9 @@ import { getPoolPrice } from "@/lib/data/pool-prices.repo"
 import { isPoolPriceFresh, refreshPoolPrice } from "@/lib/data/live-pool-tick"
 import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import { getTradableArenaPools } from "@/lib/agents/arena-pools"
+import type { LabPoolDef } from "@/lib/agents/lab-pools"
+import { listLabPoolsForUser } from "@/lib/db/lab-pools.repo"
+import { evaluateLabPoolRuntimeDecision } from "@/lib/agents/runtime/lab-pool-evaluate"
 import { evaluateRuntimeDecision } from "@/lib/agents/runtime/llm-evaluate"
 import { executeAgentDecision, type ExecuteAgentContext } from "@/lib/agents/runtime/execute-decision"
 import { chartCoordFromUsd } from "@/lib/agents/runtime/chart-coord"
@@ -89,6 +92,14 @@ function resolveArenaEconomics(
     }
   }
 
+  return arenaBetShape(idempotencyKey, betAmountStr)
+}
+
+/** Lab-pool economics — no subgraph metadata, payout is deterministic from bet + hash. */
+function resolveLabEconomics(
+  idempotencyKey: string,
+  betAmountStr: string,
+): { mult: number; payoutEth: number } {
   return arenaBetShape(idempotencyKey, betAmountStr)
 }
 
@@ -210,24 +221,35 @@ export async function runAgentTick(agentDoc: AgentDoc): Promise<{
     return { outcomes }
   }
 
-  const wallet =
-    (await ensureAgentPrivyWallet({
-      romboUserIdHex: agentDoc.romboUserIdHex,
-      privyUserId: user.privyUserId,
-      agentId: agent.id,
-    })) ?? null
-
-  const addrRecord = await findAgentWallet(agentDoc.romboUserIdHex, agent.id)
-  const walletAddress = wallet?.address ?? addrRecord?.address
-  const walletId = wallet?.id ?? addrRecord?.privyWalletId
+  /**
+   * Funding wallet for swaps = the user's Privy embedded wallet (the address
+   * shown top-right in the dashboard navbar). The legacy per-agent wallet
+   * created via `ensureAgentPrivyWallet` had zero balance and produced no
+   * executions; we keep it as a best-effort fallback for older accounts where
+   * the embedded wallet bridge has not run yet.
+   */
+  let walletAddress: string | undefined = user.privyEmbeddedWalletAddress
+  let walletId: string | undefined = user.privyEmbeddedWalletId
 
   if (!walletId || !walletAddress) {
-    outcomes.push({ skipped: true, reason: "no_agent_wallet" })
+    const fallback =
+      (await ensureAgentPrivyWallet({
+        romboUserIdHex: agentDoc.romboUserIdHex,
+        privyUserId: user.privyUserId,
+        agentId: agent.id,
+      })) ?? null
+    const addrRecord = await findAgentWallet(agentDoc.romboUserIdHex, agent.id)
+    walletAddress = walletAddress ?? fallback?.address ?? addrRecord?.address
+    walletId = walletId ?? fallback?.id ?? addrRecord?.privyWalletId
+  }
+
+  if (!walletId || !walletAddress) {
+    outcomes.push({ skipped: true, reason: "no_funding_wallet" })
     await insertAgentRun({
       romboUserIdHex: agentDoc.romboUserIdHex,
       agentId: agent.id,
       decision: "skip",
-      summary: "no_agent_wallet",
+      summary: "no_funding_wallet",
     })
     return { outcomes }
   }
@@ -337,6 +359,114 @@ export async function runAgentTick(agentDoc: AgentDoc): Promise<{
       summary: exec.summary,
       txHash: exec.ok ? exec.txHash : undefined,
     })
+  }
+
+  /** User-deployed lab pools — registered via the Liquidity Lab, opted-in per agent. */
+  const enabledLabIds = agent.config.enabledLabPoolIds
+  if (enabledLabIds.length > 0) {
+    const allLab = await listLabPoolsForUser(agentDoc.romboUserIdHex)
+    const byId = new Map(allLab.map(p => [p.labPoolId, p] as const))
+    for (const labPoolId of enabledLabIds) {
+      const doc = byId.get(labPoolId)
+      if (!doc || doc.chainId !== chainId) {
+        outcomes.push({ labPoolId, skipped: true, reason: "lab_pool_missing_or_wrong_chain" })
+        continue
+      }
+      const labPool: LabPoolDef = {
+        labPoolId: doc.labPoolId,
+        chainSlug: doc.chainSlug,
+        chainId: doc.chainId,
+        protocol: "V4",
+        fee: doc.fee,
+        tickSpacing: doc.tickSpacing,
+        hooks: doc.hooks,
+        token0: doc.token0,
+        token1: doc.token1,
+        v4PoolId: doc.v4PoolId,
+        label: doc.label,
+      }
+
+      const evalOut = await evaluateLabPoolRuntimeDecision({
+        labPool,
+        boxes: agent.boxes,
+        config: agent.config,
+      })
+      const decision = evalOut.decision
+
+      const idempotencyKey = `tick-${agent.id}-lab-${labPoolId}-${tickBucket()}`
+
+      if (decision.type === "skip") {
+        await insertAgentRun({
+          romboUserIdHex: agentDoc.romboUserIdHex,
+          agentId: agent.id,
+          labPoolId,
+          decision: "skip",
+          summary: decision.reason,
+          detail: { labPoolLabel: labPool.label, displayUsd: evalOut.displayUsd },
+          idempotencyKey,
+        })
+        outcomes.push({ labPoolId, decision: "skip", reason: decision.reason })
+        continue
+      }
+
+      const ctx: ExecuteAgentContext = {
+        romboUserIdHex: agentDoc.romboUserIdHex,
+        email: user.email,
+        agentId: agent.id,
+        privyWalletId: walletId,
+        walletAddress,
+        chainId,
+        config: agent.config,
+        idempotencyKey,
+      }
+
+      const exec = await executeAgentDecision(decision, ctx)
+      const payout = resolveLabEconomics(idempotencyKey, agent.config.betAmount)
+
+      const runDecision: "swap" | "lp_increase" | "lp_decrease" | "error" = !exec.ok
+        ? "error"
+        : decision.type === "swap"
+          ? "swap"
+          : decision.type === "lp_increase"
+            ? "lp_increase"
+            : decision.type === "lp_decrease"
+              ? "lp_decrease"
+              : "error"
+
+      await insertAgentRun({
+        romboUserIdHex: agentDoc.romboUserIdHex,
+        agentId: agent.id,
+        labPoolId,
+        decision: runDecision,
+        summary: exec.summary,
+        detail: exec.ok
+          ? {
+              txHash: exec.txHash,
+              labPoolLabel: labPool.label,
+              displayUsd: evalOut.displayUsd,
+              arenaMult: payout.mult,
+              arenaPayoutEth: payout.payoutEth,
+            }
+          : {
+              error: exec.error,
+              labPoolLabel: labPool.label,
+              displayUsd: evalOut.displayUsd,
+              arenaMult: payout.mult,
+              arenaPayoutEth: 0,
+            },
+        txHash: exec.ok ? exec.txHash : undefined,
+        chainId,
+        idempotencyKey,
+      })
+
+      outcomes.push({
+        labPoolId,
+        decision: decision.type,
+        ok: exec.ok,
+        summary: exec.summary,
+        txHash: exec.ok ? exec.txHash : undefined,
+      })
+    }
   }
 
   void refreshAgentMetricsRollupsForAgent({

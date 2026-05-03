@@ -10,7 +10,7 @@ import {
   useSwitchChain,
   useWalletClient,
 } from "wagmi"
-import { parseUnits } from "viem"
+import { isAddress, parseAbi, parseUnits, type Address } from "viem"
 import { toast } from "sonner"
 import { base, baseSepolia } from "wagmi/chains"
 import { getArenaPoolOnChain } from "@/lib/trading/arena-pool-onchain"
@@ -18,6 +18,15 @@ import type { RomboChainSlug } from "@/lib/rombo/chain-config"
 import { MINIMAL_LAB_TOKEN_ABI, MINIMAL_LAB_TOKEN_BYTECODE } from "@/lib/liquidity-lab/minimal-lab-token.generated"
 import { extractOrderedLpTransactionsClient } from "@/lib/liquidity-lab/lp-tx-from-response"
 import { WalletConnectSetupNote } from "@/components/liquidity-lab/walletconnect-setup-note"
+import {
+  V4_NATIVE_CURRENCY,
+  V4_NO_HOOKS,
+  computeV4PoolId,
+  readV4PoolSlot0,
+  sortV4Currencies,
+  v4TickSpacingForSwapFee,
+} from "@/lib/liquidity-lab/v4-pool"
+import { encodeSqrtRatioX96 } from "@/lib/liquidity-lab/sqrt-price-x96"
 
 const CHAINS = [
   { id: baseSepolia.id, slug: "base-sepolia" as RomboChainSlug, label: "Base Sepolia" },
@@ -40,6 +49,45 @@ function wideTickBounds(currentTick: number, feeTier: number): { tickLower: numb
   return { tickLower: lower, tickUpper: upper }
 }
 
+const ERC20_DECIMALS_ABI = parseAbi(["function decimals() view returns (uint8)"])
+
+/** Raw token1/token0 ratio from human token1-per-token0 (display units). */
+function humanToRawRatio(human: number, dec0: number, dec1: number): number {
+  if (!(Number.isFinite(human) && human > 0)) return 1
+  return human * Math.pow(10, dec1 - dec0)
+}
+
+/** Floor tick from raw token1/token0 ratio (same convention as Uniswap `TickMath`). */
+function rawRatioToTick(raw: number): number {
+  if (!(raw > 0 && Number.isFinite(raw))) return 0
+  return Math.floor(Math.log(raw) / Math.log(1.0001))
+}
+
+function humanPriceStringForParseUnits(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0.00000001"
+  const x = Number.parseFloat(n.toPrecision(12))
+  if (Number.isInteger(x)) return `${Math.trunc(x)}`
+  const s = x.toFixed(8).replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.$/, "")
+  return s.length ? s : String(x)
+}
+
+/**
+ * `sqrtPriceX96 = floor(sqrt(amount1_raw / amount0_raw) * 2^96)`.
+ * `amount0_raw = 10^token0Dec` (1 whole unit of token0), `amount1_raw = humanCenter * 10^token1Dec`.
+ * Returns the full BigInt as a decimal string (906adf: earlier "truncation" to 24 digits was actually correct sqrt
+ * for token1=6 decimals; the original bug was interpreting it as "truncated" and rewriting with hardcoded 18/18 on server).
+ */
+function newPoolV4InitialSqrtPriceX96(
+  humanCenter: number,
+  token0Dec: number,
+  token1Dec: number,
+): string {
+  const humanStr = humanPriceStringForParseUnits(humanCenter)
+  const amount1 = parseUnits(humanStr, token1Dec)
+  const amount0 = parseUnits("1", token0Dec)
+  return encodeSqrtRatioX96(amount1, amount0).toString()
+}
+
 export function LiquidityLabClient() {
   const { address, isConnected } = useAccount()
   const chainId = useChainId()
@@ -58,9 +106,16 @@ export function LiquidityLabClient() {
   const [tokenSupplyHuman, setTokenSupplyHuman] = useState("1000000")
 
   const [deployedAddress, setDeployedAddress] = useState<string | null>(null)
+  /** ERC-20 to pair with ETH (same as deployed token after deploy, or paste any address). */
+  const [pairErc20Address, setPairErc20Address] = useState("")
 
   const [ethAmount, setEthAmount] = useState("0.01")
+  const [customPairEthAmount, setCustomPairEthAmount] = useState("0.01")
+  /** Human: whole ERC-20 tokens per 1 ETH — used only when creating a new v4 pool (no pool yet). */
+  const [pairInitialPriceTokenPerEth, setPairInitialPriceTokenPerEth] = useState("10000")
+  const [customPairFee] = useState(500)
   const [lpPending, setLpPending] = useState(false)
+  const [customLpPending, setCustomLpPending] = useState(false)
 
   const { deployContractAsync, isPending: deployPending } = useDeployContract()
 
@@ -85,7 +140,8 @@ export function LiquidityLabClient() {
       const addr = receipt.contractAddress
       if (addr) {
         setDeployedAddress(addr)
-        toast.success("Token deployed", { description: addr })
+        setPairErc20Address(addr)
+        toast.success("Token deployed — ERC-20 address filled for pairing below.", { description: addr })
       } else {
         toast.success("Deploy confirmed", { description: hash })
       }
@@ -104,8 +160,8 @@ export function LiquidityLabClient() {
   ])
 
   const addEthUsdcLiquidity = useCallback(async () => {
-    if (!address || !walletClient) {
-      toast.error("Connect wallet")
+    if (!address || !walletClient || !publicClient) {
+      toast.error("Connect wallet and wait for network client")
       return
     }
     const meta = getArenaPoolOnChain("eth-usdc", activeSlug)
@@ -113,37 +169,41 @@ export function LiquidityLabClient() {
       toast.error("This chain has no mapped ETH/USDC arena pool in Rombo config.")
       return
     }
+    if (meta.chainId !== chainId) {
+      toast.error("Switch your wallet to the pool’s chain (Base or Base Sepolia), then retry.")
+      return
+    }
 
     setLpPending(true)
     try {
-      const poolRes = await fetch(
-        `/api/liquidity-lab/pool-meta?arenaPoolId=eth-usdc&chainId=${meta.chainId}`,
-        { credentials: "same-origin", cache: "no-store" },
-      )
-      const poolJson = (await poolRes.json()) as {
-        poolAddress?: string | null
-        tick?: string | null
-        error?: string
-      }
-      if (!poolRes.ok) {
-        toast.error(poolJson.error ?? "Could not load pool metadata (subgraph / Chainlink).")
+      const usdcAddr = (meta.token0.symbol === "USDC" ? meta.token0.address : meta.token1.address) as Address
+      const fee = meta.feeTier
+      const tickSpacing = v4TickSpacingForSwapFee(fee)
+      const [currency0, currency1] = sortV4Currencies(V4_NATIVE_CURRENCY, usdcAddr)
+      const poolId = computeV4PoolId({
+        currency0,
+        currency1,
+        fee,
+        tickSpacing,
+      })
+      const slot0 = await readV4PoolSlot0({
+        publicClient,
+        chainId: meta.chainId,
+        poolId,
+      })
+      if (!slot0.ok) {
+        toast.error(
+          slot0.reason === "no_pool_manager"
+            ? "Uniswap v4 PoolManager is not configured for this chain in the lab."
+            : "No initialized Uniswap v4 pool for native ETH + USDC at this fee tier on this chain. Create or seed that v4 pool first.",
+        )
         return
       }
-      if (!poolJson.poolAddress || poolJson.poolAddress.startsWith("0x0000000000000")) {
-        toast.error("Pool address unavailable — ensure subgraph or RPC can resolve this pair.")
-        return
-      }
-      const tickNum = poolJson.tick != null ? Number.parseInt(String(poolJson.tick), 10) : NaN
-      if (!Number.isFinite(tickNum)) {
-        toast.error("Current pool tick unknown — cannot place a range safely.")
-        return
-      }
-
-      const { tickLower, tickUpper } = wideTickBounds(tickNum, meta.feeTier)
-      const weth = meta.token0.symbol === "WETH" ? meta.token0.address : meta.token1.address
+      const { tickLower, tickUpper } = wideTickBounds(slot0.tick, fee)
       const amountWei = parseUnits(ethAmount, 18)
+      const nativeBalance = await publicClient.getBalance({ address })
       const independentToken = {
-        tokenAddress: weth.toLowerCase(),
+        tokenAddress: V4_NATIVE_CURRENCY.toLowerCase(),
         amount: amountWei.toString(),
       }
 
@@ -151,15 +211,14 @@ export function LiquidityLabClient() {
         idempotencyKey: `liquidity-lab-${Date.now()}`,
         walletAddress: address,
         chainId: meta.chainId,
-        protocol: "V3",
-        token0Address: meta.token0.address.toLowerCase(),
-        token1Address: meta.token1.address.toLowerCase(),
+        protocol: "V4" as const,
         slippageTolerance: 0.5,
         simulateTransaction: false,
+        nativeTokenBalance: nativeBalance.toString(),
         existingPool: {
-          token0Address: meta.token0.address.toLowerCase(),
-          token1Address: meta.token1.address.toLowerCase(),
-          poolReference: poolJson.poolAddress.toLowerCase(),
+          token0Address: currency0.toLowerCase(),
+          token1Address: currency1.toLowerCase(),
+          poolReference: poolId.toLowerCase(),
         },
         independentToken,
         tickBounds: { tickLower, tickUpper },
@@ -207,7 +266,186 @@ export function LiquidityLabClient() {
     } finally {
       setLpPending(false)
     }
-  }, [address, walletClient, activeSlug, ethAmount, switchChainAsync])
+  }, [address, walletClient, publicClient, chainId, activeSlug, ethAmount, switchChainAsync])
+
+  const addEthErc20PairLiquidity = useCallback(async () => {
+    if (!address || !walletClient || !publicClient) {
+      toast.error("Connect wallet and wait for network client")
+      return
+    }
+    const trimmed = pairErc20Address.trim()
+    if (!isAddress(trimmed)) {
+      toast.error("Enter a valid ERC-20 contract address (0x…)")
+      return
+    }
+    const erc20 = trimmed as Address
+    if (erc20.toLowerCase() === V4_NATIVE_CURRENCY.toLowerCase()) {
+      toast.error("Paste the ERC-20 contract address (not the native ETH placeholder).")
+      return
+    }
+
+    setCustomLpPending(true)
+    try {
+      const tickSpacing = v4TickSpacingForSwapFee(customPairFee)
+      const [currency0, currency1] = sortV4Currencies(V4_NATIVE_CURRENCY, erc20)
+      const poolId = computeV4PoolId({
+        currency0,
+        currency1,
+        fee: customPairFee,
+        tickSpacing,
+      })
+      const slot0 = await readV4PoolSlot0({ publicClient, chainId, poolId })
+      if (!slot0.ok && slot0.reason === "no_pool_manager") {
+        toast.error("Uniswap v4 PoolManager is not configured for this chain in the lab.")
+        return
+      }
+
+      const amountWei = parseUnits(customPairEthAmount, 18)
+      const nativeBalance = await publicClient.getBalance({ address })
+      const independentToken = {
+        tokenAddress: V4_NATIVE_CURRENCY.toLowerCase(),
+        amount: amountWei.toString(),
+      }
+
+      const common = {
+        idempotencyKey: `liquidity-lab-custom-${Date.now()}`,
+        walletAddress: address,
+        chainId,
+        protocol: "V4" as const,
+        slippageTolerance: 0.5,
+        simulateTransaction: false,
+        nativeTokenBalance: nativeBalance.toString(),
+        independentToken,
+      }
+
+      let body: Record<string, unknown>
+      if (slot0.ok) {
+        const { tickLower, tickUpper } = wideTickBounds(slot0.tick, customPairFee)
+        body = {
+          ...common,
+          existingPool: {
+            token0Address: currency0.toLowerCase(),
+            token1Address: currency1.toLowerCase(),
+            poolReference: poolId.toLowerCase(),
+          },
+          tickBounds: { tickLower, tickUpper },
+        }
+      } else {
+        const rawPrice = pairInitialPriceTokenPerEth.trim() || "1"
+        if (!/^\d+(\.\d+)?$/.test(rawPrice)) {
+          toast.error("Initial price must be a positive decimal, e.g. 10000 or 0.5 (ERC-20 per 1 ETH).")
+          return
+        }
+        const humanCenter = Number.parseFloat(rawPrice)
+        if (!Number.isFinite(humanCenter) || humanCenter <= 0) {
+          toast.error("Initial price must be a finite number greater than zero.")
+          return
+        }
+
+        const token0Dec = 18
+        let token1Dec: number
+        try {
+          token1Dec = Number(
+            await publicClient.readContract({
+              address: erc20,
+              abi: ERC20_DECIMALS_ABI,
+              functionName: "decimals",
+            }),
+          )
+        } catch {
+          toast.error("Could not read ERC-20 decimals for this address.")
+          return
+        }
+        if (!Number.isInteger(token1Dec) || token1Dec < 0 || token1Dec > 255) {
+          toast.error("Invalid ERC-20 decimals from contract.")
+          return
+        }
+
+        const raw = humanToRawRatio(humanCenter, token0Dec, token1Dec)
+        const centerTick = rawRatioToTick(raw)
+        const spacing = tickSpacingForFee(customPairFee)
+        let { tickLower, tickUpper } = wideTickBounds(centerTick, customPairFee)
+        tickLower -= spacing
+        tickUpper += spacing
+        const MIN_TICK = -887272
+        const MAX_TICK = 887272
+        tickLower = Math.max(tickLower, MIN_TICK)
+        tickUpper = Math.min(tickUpper, MAX_TICK)
+
+        const initialSqrtPriceX96 = newPoolV4InitialSqrtPriceX96(humanCenter, token0Dec, token1Dec)
+
+        toast.message("No v4 pool yet — requesting pool create + first position", {
+          description: `Starting price ${rawPrice} (token per 1 ETH). Sign txs in order if prompted.`,
+        })
+        body = {
+          ...common,
+          newPool: {
+            token0Address: currency0.toLowerCase(),
+            token1Address: currency1.toLowerCase(),
+            fee: customPairFee,
+            tickSpacing,
+            hooks: V4_NO_HOOKS,
+            /** Full `sqrtPriceX96` integer string (Q64.96); token decimals already baked in here. */
+            initialPrice: initialSqrtPriceX96,
+          },
+          /** Raw ticks — Uniswap `/lp/create` newPool requires `tickBounds` (human `priceBounds` yields 400 `tickPrice` mismatch, 906adf). */
+          tickBounds: { tickLower, tickUpper },
+        }
+      }
+
+      const lpRes = await fetch("/api/liquidity/create", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const lpJson = await lpRes.json()
+      if (!lpRes.ok) {
+        toast.error(typeof lpJson.error === "string" ? lpJson.error : "Liquidity API error")
+        return
+      }
+
+      const txs = extractOrderedLpTransactionsClient(lpJson)
+      if (!txs.length) {
+        toast.error("No transactions in liquidity response.")
+        return
+      }
+
+      await switchChainAsync?.({ chainId })
+
+      const chain = chainId === base.id ? base : baseSepolia
+
+      let lastHash: `0x${string}` | undefined
+      for (const tx of txs) {
+        const h = await walletClient.sendTransaction({
+          chain,
+          account: address as `0x${string}`,
+          to: tx.to,
+          data: tx.data,
+          value: tx.value ?? BigInt(0),
+          gas: tx.gas,
+          maxFeePerGas: tx.maxFeePerGas,
+          maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+        })
+        lastHash = h
+      }
+      toast.success("Custom pair liquidity txs sent", { description: lastHash })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Custom pair liquidity failed")
+    } finally {
+      setCustomLpPending(false)
+    }
+  }, [
+    address,
+    walletClient,
+    publicClient,
+    chainId,
+    pairErc20Address,
+    customPairEthAmount,
+    customPairFee,
+    pairInitialPriceTokenPerEth,
+    switchChainAsync,
+  ])
 
   return (
     <div className="max-w-2xl mx-auto space-y-10 px-4 py-8">
@@ -217,9 +455,12 @@ export function LiquidityLabClient() {
         <p className="text-[11px] uppercase tracking-[0.2em] text-black/40">Tools</p>
         <h1 className="text-2xl font-medium tracking-tight text-black">Liquidity lab</h1>
         <p className="text-sm text-black/55 leading-relaxed">
-          Connect an external wallet (MetaMask, Rainbow, …), deploy a simple test ERC-20 (your own “USDC-style”
-          token on testnet), and add V3 liquidity to the canonical WETH / USDC pair using Rombo’s Uniswap
-          Liquidity API. This is for experimentation — not audited for production.
+          Connect an external wallet, deploy an ERC-20, then add liquidity with{" "}
+          <strong className="font-medium text-black/70">native ETH</strong> plus another token using{" "}
+          <strong className="font-medium text-black/70">Uniswap v4</strong> and the Labs Liquidity API (
+          <code className="font-mono text-[11px]">protocol: V4</code>, native currency{" "}
+          <code className="font-mono text-[11px]">0x000…000</code>). Pools must already exist on-chain. For
+          experimentation only — not audited.
         </p>
       </header>
 
@@ -302,7 +543,7 @@ export function LiquidityLabClient() {
           {deployPending ? "Deploying…" : "Deploy token"}
         </button>
         <label className="block text-xs space-y-1">
-          <span className="text-black/50">Deployed token address (paste from wallet / explorer)</span>
+          <span className="text-black/50">Deployed token address (optional — copied below for pairing)</span>
           <input
             value={deployedAddress ?? ""}
             onChange={e => setDeployedAddress(e.target.value.trim() || null)}
@@ -313,13 +554,14 @@ export function LiquidityLabClient() {
       </section>
 
       <section className="rounded-2xl border border-black/10 bg-white p-6 shadow-sm space-y-4">
-        <h2 className="text-sm font-medium text-black">2 · Add WETH + USDC liquidity (canonical pool)</h2>
+        <h2 className="text-sm font-medium text-black">2 · Add ETH + USDC liquidity (canonical pool)</h2>
         <p className="text-xs text-black/45">
-          Uses Rombo’s mapped WETH/USDC addresses for the selected chain, fetches pool tick from the server,
-          then requests LP txs from Uniswap’s Liquidity API. You sign each transaction in your wallet.
+          Uses the canonical <strong className="text-black/60">native ETH + USDC</strong> Uniswap v4 pool on this
+          chain (same USDC as Rombo’s arena mapping). Current tick is read from the v4 PoolManager via RPC; the
+          Liquidity API builds mint txs. You sign in your wallet.
         </p>
         <label className="text-xs space-y-1 block max-w-xs">
-          <span className="text-black/50">WETH amount (ETH)</span>
+          <span className="text-black/50">ETH amount</span>
           <input
             value={ethAmount}
             onChange={e => setEthAmount(e.target.value)}
@@ -330,18 +572,74 @@ export function LiquidityLabClient() {
           type="button"
           disabled={!isConnected || lpPending}
           onClick={() => void addEthUsdcLiquidity()}
-          className="text-sm px-4 py-2 rounded-xl border border-black/15 hover:bg-black/[0.03] disabled:opacity-40"
+          className="text-sm px-4 py-2 rounded-xl border border-black/15 hover:bg-black/3 disabled:opacity-40"
         >
           {lpPending ? "Working…" : "Prepare & send LP transactions"}
         </button>
       </section>
 
-      <section className="rounded-2xl border border-dashed border-black/15 bg-black/[0.02] p-5 text-xs text-black/50 space-y-2">
-        <p>
-          <strong className="text-black/70">Pairing your deployed token with WETH:</strong> create and seed a
-          v3 pool on Uniswap for your token + WETH (fee tier 0.05% recommended), then you can add liquidity
-          from the Uniswap app or extend this lab with a custom route.
+      <section className="rounded-2xl border border-black/10 bg-white p-6 shadow-sm space-y-4">
+        <h2 className="text-sm font-medium text-black">3 · Pair your ERC-20 with ETH</h2>
+        <p className="text-xs text-black/45">
+          After you deploy a token in step 1, its address is filled here automatically; you can paste any ERC-20 on
+          this chain. If a <strong className="text-black/60">native ETH + token</strong> v4 pool already exists at
+          the fee tier, we add liquidity there. If not, the lab asks the Liquidity API to{" "}
+          <strong className="text-black/60">create the pool</strong> at the initial price below, then mint a
+          position (you may sign more than one transaction).
         </p>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+          <label className="text-xs space-y-1 flex-1 min-w-0">
+            <span className="text-black/50">ERC-20 token contract</span>
+            <input
+              value={pairErc20Address}
+              onChange={e => setPairErc20Address(e.target.value)}
+              placeholder="0x… (auto-filled after deploy)"
+              className="w-full rounded-lg border border-black/10 px-3 py-2 text-sm font-mono"
+            />
+          </label>
+          {deployedAddress ? (
+            <button
+              type="button"
+              onClick={() => setPairErc20Address(deployedAddress)}
+              className="text-[11px] shrink-0 px-3 py-2 rounded-lg border border-black/10 hover:bg-black/3"
+            >
+              Use deployed token
+            </button>
+          ) : null}
+        </div>
+        <label className="text-xs space-y-1 block max-w-xs">
+          <span className="text-black/50">ETH amount (native)</span>
+          <input
+            value={customPairEthAmount}
+            onChange={e => setCustomPairEthAmount(e.target.value)}
+            className="w-full rounded-lg border border-black/10 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="text-xs space-y-1 block max-w-xs">
+          <span className="text-black/50">
+            Initial price if pool is new (ERC-20 per 1 ETH — positive decimal, sent as token1 per token0)
+          </span>
+          <input
+            value={pairInitialPriceTokenPerEth}
+            onChange={e => setPairInitialPriceTokenPerEth(e.target.value)}
+            placeholder="10000"
+            className="w-full rounded-lg border border-black/10 px-3 py-2 text-sm"
+          />
+        </label>
+        <p className="text-[11px] text-black/40">
+          Fee tier: {customPairFee} (0.05%). Used for pool id and, when creating a pool, for tick spacing.
+        </p>
+        <button
+          type="button"
+          disabled={!isConnected || customLpPending}
+          onClick={() => void addEthErc20PairLiquidity()}
+          className="text-sm px-4 py-2 rounded-xl bg-black text-white hover:bg-black/90 disabled:opacity-40"
+        >
+          {customLpPending ? "Working…" : "Prepare & send LP for custom pair"}
+        </button>
+      </section>
+
+      <section className="rounded-2xl border border-dashed border-black/15 bg-black/2 p-5 text-xs text-black/50 space-y-2">
         <p>
           Requires <code className="font-mono text-[11px]">UNISWAP_API_KEY</code> on the server (same as the rest
           of Rombo).

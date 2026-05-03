@@ -50,6 +50,12 @@ export type AgentConfig = {
   tradeAllPools: boolean
   /** Subset of arena pool ids — ignored when `tradeAllPools` is true. */
   enabledPoolIds: ArenaPoolId[]
+  /**
+   * User-deployed lab pools this agent is allowed to trade (auto-registered
+   * on successful `/lp/create`, shape defined in `@/lib/agents/lab-pools`).
+   * Ignored by `tradeAllPools` (always opt-in per-agent).
+   */
+  enabledLabPoolIds: string[]
 }
 
 export type AgentTotals = {
@@ -135,6 +141,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   fundingNotes: "",
   tradeAllPools: false,
   enabledPoolIds: ["eth-usdc"],
+  enabledLabPoolIds: [],
 }
 
 /** Merge persisted config with current schema (localStorage migration). */
@@ -169,6 +176,15 @@ export function migrateAgentConfig(partial: Partial<AgentConfig> & Record<string
     merged.enabledPoolIds = [inferArenaPoolFromLegacyFields(merged).id]
   } else {
     merged.enabledPoolIds = normalizeEnabledPoolIds(partial.enabledPoolIds)
+  }
+
+  if (Array.isArray(partial.enabledLabPoolIds)) {
+    const seen = new Set<string>()
+    merged.enabledLabPoolIds = partial.enabledLabPoolIds
+      .filter((x): x is string => typeof x === "string" && x.trim().length > 0 && !seen.has(x) && (seen.add(x), true))
+      .slice(0, 50)
+  } else {
+    merged.enabledLabPoolIds = []
   }
 
   const primary =

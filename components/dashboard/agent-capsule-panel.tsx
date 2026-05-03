@@ -14,6 +14,7 @@ import {
   normalizeEnabledPoolIds,
   type ArenaPoolId,
 } from "@/lib/agents/arena-pools"
+import { LabPoolPicker } from "@/components/dashboard/lab-pool-picker"
 import { chainDisplayName } from "@/lib/rombo/chain-config"
 import type { PriceBox } from "@/components/dashboard/types"
 
@@ -95,6 +96,13 @@ export function AgentCapsulePanel({
       feeTier: primary.feeTier,
       pool: formatPoolLabel(primary.basePair, primary.feeTier),
     })
+  }
+
+  function toggleLabPool(labPoolId: string) {
+    const cur = new Set(config.enabledLabPoolIds)
+    if (cur.has(labPoolId)) cur.delete(labPoolId)
+    else cur.add(labPoolId)
+    onConfigChange({ enabledLabPoolIds: [...cur] })
   }
 
   function togglePool(id: ArenaPoolId) {
@@ -282,6 +290,12 @@ export function AgentCapsulePanel({
             </div>
           </div>
         )}
+
+        <LabPoolPicker
+          selectedIds={config.enabledLabPoolIds}
+          onToggle={toggleLabPool}
+          disabled={config.tradeAllPools}
+        />
 
         <p className="text-[10px] text-black/40 leading-snug">
           Primary routing (display):{" "}

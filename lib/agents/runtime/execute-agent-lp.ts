@@ -178,7 +178,11 @@ export async function executeAgentLpDecision(
     return { ok: false, summary: "uniswap_not_configured", error: "UNISWAP_API_KEY" }
   }
 
-  const arenaPoolId = decision.arenaPoolId
+  if (decision.target.kind !== "arena") {
+    /* LP provisioning into user-deployed lab pools isn't wired yet — only arena pools for now. */
+    return { ok: false, summary: "lab_pool_lp_not_supported" }
+  }
+  const arenaPoolId = decision.target.arenaPoolId
   const meta = getArenaPoolOnChain(arenaPoolId, ctx.config.chain)
   if (!meta) {
     return { ok: false, summary: "arena_pool_not_on_chain", error: arenaPoolId }

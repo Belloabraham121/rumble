@@ -42,6 +42,7 @@ export const agentConfigSchema = z.object({
   fundingNotes: z.string().max(2000),
   tradeAllPools: z.boolean(),
   enabledPoolIds: z.array(arenaPoolIdSchema).min(1),
+  enabledLabPoolIds: z.array(z.string().min(1).max(200)).max(50).default([]),
   poolRemovalWarnings: z.array(z.string().max(500)).max(20).optional(),
 })
 

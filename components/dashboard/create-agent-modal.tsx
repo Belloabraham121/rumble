@@ -10,6 +10,7 @@ import {
   type RiskLevel,
 } from "@/lib/agents/agent-types"
 import { ARENA_POOLS, normalizeEnabledPoolIds, type ArenaPoolId } from "@/lib/agents/arena-pools"
+import { LabPoolPicker } from "@/components/dashboard/lab-pool-picker"
 
 type Props = {
   open: boolean
@@ -104,6 +105,15 @@ export function CreateAgentModal({ open, onClose, onCreate, existingNames }: Pro
         feeTier: primary.feeTier,
         pool: formatPoolLabel(primary.basePair, primary.feeTier),
       }
+    })
+  }
+
+  function toggleLabPool(labPoolId: string) {
+    setCfg(prev => {
+      const cur = new Set(prev.enabledLabPoolIds)
+      if (cur.has(labPoolId)) cur.delete(labPoolId)
+      else cur.add(labPoolId)
+      return { ...prev, enabledLabPoolIds: [...cur] }
     })
   }
 
@@ -267,6 +277,11 @@ export function CreateAgentModal({ open, onClose, onCreate, existingNames }: Pro
                 })}
               </div>
             )}
+            <LabPoolPicker
+              selectedIds={cfg.enabledLabPoolIds}
+              onToggle={toggleLabPool}
+              disabled={cfg.tradeAllPools}
+            />
             <div>
               <label className="block text-[9px] tracking-widest text-black/35 uppercase mb-1">Primary routing (derived)</label>
               <input className={`${fieldClass()} bg-black/[0.03] text-black/55`} readOnly value={cfg.pool} />

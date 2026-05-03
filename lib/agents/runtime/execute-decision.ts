@@ -99,15 +99,22 @@ export async function executeAgentDecision(
     return { ok: false, summary: "uniswap_not_configured", error: "UNISWAP_API_KEY" }
   }
 
-  const arenaPoolId = decision.arenaPoolId as ArenaPoolId
-
-  const quoteBody = buildAgentQuoteRequestBody({
-    config: ctx.config,
-    amount: decision.amount,
-    swapper: ctx.walletAddress,
-    arenaPoolId,
-    arenaDirection: decision.direction,
-  })
+  const quoteBody =
+    decision.target.kind === "lab"
+      ? buildAgentQuoteRequestBody({
+          config: ctx.config,
+          amount: decision.amount,
+          swapper: ctx.walletAddress,
+          labPool: decision.target.labPool,
+          labPoolDirection: decision.direction,
+        })
+      : buildAgentQuoteRequestBody({
+          config: ctx.config,
+          amount: decision.amount,
+          swapper: ctx.walletAddress,
+          arenaPoolId: decision.target.arenaPoolId as ArenaPoolId,
+          arenaDirection: decision.direction,
+        })
 
   let quoteResponse: unknown
   try {
@@ -123,7 +130,7 @@ export async function executeAgentDecision(
     const noRouteTestnet =
       e instanceof RomboUniswapError &&
       e.code === UNISWAP_ERROR_CODES.NO_QUOTE &&
-      ctx.config.chain === "base-sepolia"
+      (ctx.config.chain === "base-sepolia" || decision.target.kind === "lab")
     return {
       ok: false,
       summary: noRouteTestnet ? "quote_failed_no_route_testnet" : "quote_failed",

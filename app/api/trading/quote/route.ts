@@ -83,10 +83,6 @@ export async function POST(req: Request) {
         ...(useArena
           ? { arenaPoolId: arenaRaw as ArenaPoolId, arenaDirection }
           : { tokenIn, tokenOut }),
-        protocols:
-          Array.isArray(raw.protocols) && raw.protocols.every(x => typeof x === "string")
-            ? (raw.protocols as string[])
-            : undefined,
       })
       permit2Disabled =
         typeof raw.permit2Disabled === "boolean" ? raw.permit2Disabled : undefined

@@ -1,97 +1,102 @@
-"use client"
+"use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react"
-import { chartTheme as T } from "@/components/dashboard/chart-theme"
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { chartTheme as T } from "@/components/dashboard/chart-theme";
 import {
   arenaMultiplierJitterFromSeed,
   arenaSubgraphSnapshotFromStrings,
   multiplierForArenaGridCell,
   type ArenaPoolSubgraphSnapshot,
-} from "@/lib/agents/arena-box-multiplier"
-import type { ArenaPoolId } from "@/lib/agents/arena-pools"
-import { getPoolChartSim } from "@/lib/agents/arena-pools"
-import { chartCoordFromUsd } from "@/lib/agents/runtime/chart-coord"
+} from "@/lib/agents/arena-box-multiplier";
+import type { ArenaPoolId } from "@/lib/agents/arena-pools";
+import { getPoolChartSim } from "@/lib/agents/arena-pools";
+import { chartCoordFromUsd } from "@/lib/agents/runtime/chart-coord";
 
 type Props = {
-  selectedTargetId: string | null
-  onSelectTarget: (id: string | null) => void
-  betAmount: string
+  selectedTargetId: string | null;
+  onSelectTarget: (id: string | null) => void;
+  betAmount: string;
   /**
    * Full freeze: stops the RAF loop (chart + arena). Use only when the canvas must not
    * animate at all (e.g. base layer hidden under overlay).
    */
-  paused?: boolean
+  paused?: boolean;
   /**
    * Arena/game freeze only: stops scrolling boxes, spawns, and hit resolution — the live
    * price trail and head still update so the graph keeps moving while the agent is paused.
    */
-  arenaPaused?: boolean
+  arenaPaused?: boolean;
   /** Canonical arena pool — drives chart scaling + quote (`mechanics.md`). */
-  poolId?: string
-  onPriceUpdate?: (usdPrice: number) => void
+  poolId?: string;
+  onPriceUpdate?: (usdPrice: number) => void;
   /** Server-confirmed swap hit — drives EXECUTED overlay (from `agent_runs`, not grid RNG). */
-  serverArenaFlash?: { hit: boolean; mult: number; payoutEth: number; at: number } | null
+  serverArenaFlash?: {
+    hit: boolean;
+    mult: number;
+    payoutEth: number;
+    at: number;
+  } | null;
   /**
    * Live USD price from `/api/data/pools/[id]/price`. When set, the chart drives the
    * head + trail from this value instead of the internal synthetic path (`agent.md` §chart).
    */
-  liveUsdPrice?: number | null
+  liveUsdPrice?: number | null;
   /** Optional seed prices (most recent USD closes) used to prime the trail on pool change. */
-  liveSeedUsdPrices?: number[]
+  liveSeedUsdPrices?: number[];
   /**
    * 24h subgraph fields from `/api/data/pools` — when set, grid cell multipliers match
    * server arena blending (geometry + activity).
    */
   poolActivity?: {
-    volumeUsd24h?: string
-    feesUsd24h?: string
-    totalValueLockedUsd?: string
-    tick?: string
-  } | null
-}
+    volumeUsd24h?: string;
+    feesUsd24h?: string;
+    totalValueLockedUsd?: string;
+    tick?: string;
+  } | null;
+};
 
-const W = 1600
-const H = 900
-const PAD = { l: 52, r: 20, t: 32, b: 32 }
-const GRID_ROWS = 12
-const GRID_COLS = 16
+const W = 1600;
+const H = 900;
+const PAD = { l: 52, r: 20, t: 32, b: 32 };
+const GRID_ROWS = 12;
+const GRID_COLS = 16;
 /** Head (arrow) sits near the LEFT of the board. Trail renders behind it. */
-const HEAD_COL = 3
+const HEAD_COL = 3;
 /** How fast target boxes scroll leftward, in cells-per-frame. */
-const BOX_SPEED = 0.018
+const BOX_SPEED = 0.018;
 /** Spawn one full column of boxes every `SPAWN_GAP` cells so the grid stays filled. */
-const SPAWN_GAP = 1
+const SPAWN_GAP = 1;
 
 type TargetBox = {
-  id: string
-  row: number
+  id: string;
+  row: number;
   /**
    * Integer lattice index. Effective rendered column = `lattice - scroll`.
    * Keeping this as an integer means every box shares the same fractional
    * scroll offset and they can never overlap each other.
    */
-  lattice: number
+  lattice: number;
   /** Per-cell visual variance; mult is derived live from spot + this until resolution. */
-  jitter: number
-  resolved: boolean
-  hit: boolean
+  jitter: number;
+  resolved: boolean;
+  hit: boolean;
   /** Set when the box reaches the head — freezes mult for that frame (no more real-time drift). */
-  lockedMult?: number
-}
+  lockedMult?: number;
+};
 
 function priceToY(price: number, minP: number, maxP: number) {
-  if (!Number.isFinite(price)) return (PAD.t + H - PAD.b) / 2
-  const denom = maxP - minP
-  const d = denom > 1e-18 ? denom : 1
-  const n = (price - minP) / d
-  if (!Number.isFinite(n)) return (PAD.t + H - PAD.b) / 2
-  return PAD.t + (1 - n) * (H - PAD.t - PAD.b)
+  if (!Number.isFinite(price)) return (PAD.t + H - PAD.b) / 2;
+  const denom = maxP - minP;
+  const d = denom > 1e-18 ? denom : 1;
+  const n = (price - minP) / d;
+  if (!Number.isFinite(n)) return (PAD.t + H - PAD.b) / 2;
+  return PAD.t + (1 - n) * (H - PAD.t - PAD.b);
 }
 
 function rowForPrice(p: number, minP: number, maxP: number) {
-  if (maxP <= minP) return 0
-  const n = (maxP - p) / (maxP - minP)
-  return Math.max(0, Math.min(GRID_ROWS - 1, Math.floor(n * GRID_ROWS)))
+  if (maxP <= minP) return 0;
+  const n = (maxP - p) / (maxP - minP);
+  return Math.max(0, Math.min(GRID_ROWS - 1, Math.floor(n * GRID_ROWS)));
 }
 
 /** Band-width / spot alignment multipliers shared with server ticks (`arena-box-multiplier.ts`). */
@@ -111,7 +116,7 @@ function spawnCellMultiplier(
     arenaPoolId: poolId as ArenaPoolId,
     jitter,
     subgraph,
-  })
+  });
 }
 
 export function AgentChartCanvas({
@@ -127,11 +132,11 @@ export function AgentChartCanvas({
   liveSeedUsdPrices,
   poolActivity = null,
 }: Props) {
-  const uid = useId().replace(/:/g, "")
-  const lineGlowId = `${uid}-lineGlow`
-  const cellGlowLightId = `${uid}-cellGlowLight`
-  const areaFillId = `${uid}-areaFill`
-  const poolSim = useMemo(() => getPoolChartSim(poolId), [poolId])
+  const uid = useId().replace(/:/g, "");
+  const lineGlowId = `${uid}-lineGlow`;
+  const cellGlowLightId = `${uid}-cellGlowLight`;
+  const areaFillId = `${uid}-areaFill`;
+  const poolSim = useMemo(() => getPoolChartSim(poolId), [poolId]);
 
   const subgraphForMult = useMemo(
     () => arenaSubgraphSnapshotFromStrings(poolActivity ?? undefined),
@@ -141,31 +146,34 @@ export function AgentChartCanvas({
       poolActivity?.totalValueLockedUsd,
       poolActivity?.tick,
     ],
-  )
-  const subgraphMultRef = useRef<ArenaPoolSubgraphSnapshot | null>(null)
+  );
+  const subgraphMultRef = useRef<ArenaPoolSubgraphSnapshot | null>(null);
   useEffect(() => {
-    subgraphMultRef.current = subgraphForMult
-  }, [subgraphForMult])
+    subgraphMultRef.current = subgraphForMult;
+  }, [subgraphForMult]);
 
-  const gl = PAD.l
-  const chartRight = W - PAD.r
-  const gridTop = PAD.t
-  const gridBottom = H - PAD.b
-  const cellH = (gridBottom - gridTop) / GRID_ROWS
-  const cellW = (chartRight - gl) / GRID_COLS
+  const gl = PAD.l;
+  const chartRight = W - PAD.r;
+  const gridTop = PAD.t;
+  const gridBottom = H - PAD.b;
+  const cellH = (gridBottom - gridTop) / GRID_ROWS;
+  const cellW = (chartRight - gl) / GRID_COLS;
 
-  const headX = gl + HEAD_COL * cellW + cellW / 2
+  const headX = gl + HEAD_COL * cellW + cellW / 2;
 
   const [history, setHistory] = useState<{ x: number; p: number }[]>(() =>
-    Array.from({ length: 56 }, (_, i) => ({ x: i, p: 52 + Math.sin(i * 0.18) * 8 })),
-  )
-  const [currentP, setCurrentP] = useState(56)
-  const [scrollOffset, setScrollOffset] = useState(0)
+    Array.from({ length: 56 }, (_, i) => ({
+      x: i,
+      p: 52 + Math.sin(i * 0.18) * 8,
+    })),
+  );
+  const [currentP, setCurrentP] = useState(56);
+  const [scrollOffset, setScrollOffset] = useState(0);
   const [targets, setTargets] = useState<TargetBox[]>(() => {
-    const init: TargetBox[] = []
+    const init: TargetBox[] = [];
     for (let lattice = HEAD_COL + 1; lattice <= GRID_COLS; lattice++) {
       for (let row = 0; row < GRID_ROWS; row++) {
-        const seed = lattice * 37 + row
+        const seed = lattice * 37 + row;
         init.push({
           id: `t-init-${lattice}-${row}`,
           row,
@@ -173,18 +181,21 @@ export function AgentChartCanvas({
           jitter: arenaMultiplierJitterFromSeed(seed),
           resolved: false,
           hit: false,
-        })
+        });
       }
     }
-    return init
-  })
-  const [hitFlash, setHitFlash] = useState<{ label: string; at: number } | null>(null)
+    return init;
+  });
+  const [hitFlash, setHitFlash] = useState<{
+    label: string;
+    at: number;
+  } | null>(null);
 
-  const rafRef = useRef(0)
-  const tRef = useRef(0)
-  const scrollRef = useRef(0)
-  const nextLatticeRef = useRef(GRID_COLS + 1)
-  const idRef = useRef(1000)
+  const rafRef = useRef(0);
+  const tRef = useRef(0);
+  const scrollRef = useRef(0);
+  const nextLatticeRef = useRef(GRID_COLS + 1);
+  const idRef = useRef(1000);
 
   /**
    * Always derive vertical scale from the actual series — never assume “sim” 38–68 when
@@ -193,99 +204,103 @@ export function AgentChartCanvas({
    * viewBox and the green trail looks “gone”.
    */
   const { minP, maxP } = useMemo(() => {
-    const prices: number[] = []
+    const prices: number[] = [];
     for (const h of history) {
-      if (Number.isFinite(h.p)) prices.push(h.p)
+      if (Number.isFinite(h.p)) prices.push(h.p);
     }
-    if (Number.isFinite(currentP)) prices.push(currentP)
-    if (liveUsdPrice != null && Number.isFinite(liveUsdPrice)) prices.push(liveUsdPrice)
-    if (prices.length === 0) return { minP: 38, maxP: 68 }
-    const lo = Math.min(...prices)
-    const hi = Math.max(...prices)
-    const span = Math.max(hi - lo, Math.abs(hi) * 0.005 || 1)
-    const pad = span * 0.25
-    return { minP: lo - pad, maxP: hi + pad }
-  }, [history, currentP, liveUsdPrice])
+    if (Number.isFinite(currentP)) prices.push(currentP);
+    if (liveUsdPrice != null && Number.isFinite(liveUsdPrice))
+      prices.push(liveUsdPrice);
+    if (prices.length === 0) return { minP: 38, maxP: 68 };
+    const lo = Math.min(...prices);
+    const hi = Math.max(...prices);
+    const span = Math.max(hi - lo, Math.abs(hi) * 0.005 || 1);
+    const pad = span * 0.25;
+    return { minP: lo - pad, maxP: hi + pad };
+  }, [history, currentP, liveUsdPrice]);
 
-  const headY = priceToY(currentP, minP, maxP)
-  const activeRow = rowForPrice(currentP, minP, maxP)
+  const headY = priceToY(currentP, minP, maxP);
+  const activeRow = rowForPrice(currentP, minP, maxP);
 
   /** Same USD→coord mapping as the RAF loop so displayed mult tracks spot in real time. */
   const usdForArenaMult =
     liveUsdPrice != null && Number.isFinite(liveUsdPrice)
       ? liveUsdPrice
-      : poolSim.usdFromSim(currentP)
-  const spotCoordForDisplay = chartCoordFromUsd(usdForArenaMult, poolId as ArenaPoolId)
+      : poolSim.usdFromSim(currentP);
+  const spotCoordForDisplay = chartCoordFromUsd(
+    usdForArenaMult,
+    poolId as ArenaPoolId,
+  );
 
-  const parsedBet = Number.parseFloat(betAmount)
-  const safeBet = Number.isFinite(parsedBet) && parsedBet > 0 ? parsedBet : 0
+  const parsedBet = Number.parseFloat(betAmount);
+  const safeBet = Number.isFinite(parsedBet) && parsedBet > 0 ? parsedBet : 0;
 
   /** Share latest values with the RAF loop without retriggering it on every tick. */
-  const liveUsdPriceRef = useRef<number | null>(liveUsdPrice)
+  const liveUsdPriceRef = useRef<number | null>(liveUsdPrice);
   /**
    * Last good chart USD (live poll or seeded close). When the poll is still in flight, `liveUsdPrice`
    * can be null while `liveSeedUsdPrices` has already filled `history` with ~3000-level closes.
    * Without this, the RAF branch treats that as “sim mode” and appends ~38–68 sim points every frame,
    * collapsing the Y scale so the green trail looks invisible (flat line at the bottom).
    */
-  const stableChartUsdRef = useRef<number | null>(null)
-  const priceRangeRef = useRef({ minP, maxP })
+  const stableChartUsdRef = useRef<number | null>(null);
+  const priceRangeRef = useRef({ minP, maxP });
   useEffect(() => {
-    liveUsdPriceRef.current = liveUsdPrice
-  }, [liveUsdPrice])
+    liveUsdPriceRef.current = liveUsdPrice;
+  }, [liveUsdPrice]);
   useEffect(() => {
     if (liveUsdPrice != null && Number.isFinite(liveUsdPrice)) {
-      stableChartUsdRef.current = liveUsdPrice
+      stableChartUsdRef.current = liveUsdPrice;
     }
-  }, [liveUsdPrice])
+  }, [liveUsdPrice]);
   useEffect(() => {
-    priceRangeRef.current = { minP, maxP }
-  }, [minP, maxP])
+    priceRangeRef.current = { minP, maxP };
+  }, [minP, maxP]);
 
-  const arenaPausedRef = useRef(arenaPaused)
+  const arenaPausedRef = useRef(arenaPaused);
   useEffect(() => {
-    arenaPausedRef.current = arenaPaused
-  }, [arenaPaused])
+    arenaPausedRef.current = arenaPaused;
+  }, [arenaPaused]);
 
   /**
    * Trail across the left band (gl → headX), always terminating at the head dot so the
    * stroke never disappears when history has one sample or is briefly stale vs `currentP`.
    */
   const pathD = useMemo(() => {
-    const trail = history.filter(h => Number.isFinite(h.p)).slice(-48)
-    const hy = priceToY(currentP, minP, maxP)
-    const parts: string[] = []
+    const trail = history.filter((h) => Number.isFinite(h.p)).slice(-48);
+    const hy = priceToY(currentP, minP, maxP);
+    const parts: string[] = [];
     if (trail.length === 0) {
-      return `M ${gl.toFixed(1)} ${hy.toFixed(1)} L ${headX.toFixed(1)} ${hy.toFixed(1)}`
+      return `M ${gl.toFixed(1)} ${hy.toFixed(1)} L ${headX.toFixed(1)} ${hy.toFixed(1)}`;
     }
-    const n = trail.length
+    const n = trail.length;
     for (let i = 0; i < n; i++) {
-      const pt = trail[i]!
-      const xNorm = n <= 1 ? 0 : i / (n - 1)
-      const x = gl + xNorm * (headX - gl)
-      const y = priceToY(pt.p, minP, maxP)
-      parts.push(`${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`)
+      const pt = trail[i]!;
+      const xNorm = n <= 1 ? 0 : i / (n - 1);
+      const x = gl + xNorm * (headX - gl);
+      const y = priceToY(pt.p, minP, maxP);
+      parts.push(`${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`);
     }
-    parts.push(`L ${headX.toFixed(1)} ${hy.toFixed(1)}`)
-    return parts.join(" ")
-  }, [history, minP, maxP, gl, headX, currentP])
+    parts.push(`L ${headX.toFixed(1)} ${hy.toFixed(1)}`);
+    return parts.join(" ");
+  }, [history, minP, maxP, gl, headX, currentP]);
 
   /** Seed history from real candles when provided. */
   useEffect(() => {
-    if (!liveSeedUsdPrices || liveSeedUsdPrices.length === 0) return
-    const closes = liveSeedUsdPrices.filter(p => Number.isFinite(p))
-    if (closes.length === 0) return
-    const seeded = closes.slice(-120).map((p, i) => ({ x: i, p }))
-    setHistory(seeded)
-    const last = seeded[seeded.length - 1]
+    if (!liveSeedUsdPrices || liveSeedUsdPrices.length === 0) return;
+    const closes = liveSeedUsdPrices.filter((p) => Number.isFinite(p));
+    if (closes.length === 0) return;
+    const seeded = closes.slice(-120).map((p, i) => ({ x: i, p }));
+    setHistory(seeded);
+    const last = seeded[seeded.length - 1];
     if (last) {
-      setCurrentP(last.p)
+      setCurrentP(last.p);
       // Hold trail at candle resolution until the live poll catches up (see stableChartUsdRef).
       if (liveUsdPriceRef.current == null) {
-        stableChartUsdRef.current = last.p
+        stableChartUsdRef.current = last.p;
       }
     }
-  }, [liveSeedUsdPrices])
+  }, [liveSeedUsdPrices]);
 
   /**
    * Before candle seeds arrive, `history` still holds sim-scale points (~38–68) while
@@ -293,79 +308,82 @@ export function AgentChartCanvas({
    * Prime USD-scale history so the back trail renders immediately.
    */
   useEffect(() => {
-    if (liveUsdPrice == null || !Number.isFinite(liveUsdPrice)) return
-    if (liveSeedUsdPrices && liveSeedUsdPrices.length > 0) return
-    setHistory(h => {
-      const finite = h.map(x => x.p).filter(Number.isFinite)
-      const maxHist = finite.length > 0 ? Math.max(...finite) : -Infinity
+    if (liveUsdPrice == null || !Number.isFinite(liveUsdPrice)) return;
+    if (liveSeedUsdPrices && liveSeedUsdPrices.length > 0) return;
+    setHistory((h) => {
+      const finite = h.map((x) => x.p).filter(Number.isFinite);
+      const maxHist = finite.length > 0 ? Math.max(...finite) : -Infinity;
       const legacySim =
-        finite.length > 0 && maxHist < 200 && liveUsdPrice > 300
-      if (!legacySim && h.length >= 2) return h
+        finite.length > 0 && maxHist < 200 && liveUsdPrice > 300;
+      if (!legacySim && h.length >= 2) return h;
       return [
         { x: 0, p: liveUsdPrice },
         { x: 1, p: liveUsdPrice },
-      ]
-    })
-    setCurrentP(liveUsdPrice)
-  }, [liveUsdPrice, liveSeedUsdPrices])
+      ];
+    });
+    setCurrentP(liveUsdPrice);
+  }, [liveUsdPrice, liveSeedUsdPrices]);
 
   useEffect(() => {
     if (paused) {
-      cancelAnimationFrame(rafRef.current)
-      return
+      cancelAnimationFrame(rafRef.current);
+      return;
     }
 
     const loop = () => {
-      tRef.current += 1
-      const polled = liveUsdPriceRef.current
-      const held = stableChartUsdRef.current
-      const live = polled ?? held
-      const { minP: liveMinP, maxP: liveMaxP } = priceRangeRef.current
+      tRef.current += 1;
+      const polled = liveUsdPriceRef.current;
+      const held = stableChartUsdRef.current;
+      const live = polled ?? held;
+      const { minP: liveMinP, maxP: liveMaxP } = priceRangeRef.current;
 
-      let next: number
-      let reportedUsd: number
+      let next: number;
+      let reportedUsd: number;
       if (live != null && Number.isFinite(live)) {
-        next = live
-        reportedUsd = live
+        next = live;
+        reportedUsd = live;
       } else {
-        const t = tRef.current * 0.02
-        const noise = (Math.random() - 0.5) * 0.5
+        const t = tRef.current * 0.02;
+        const noise = (Math.random() - 0.5) * 0.5;
         next =
           poolSim.mid +
           Math.sin(t + poolSim.phase) * poolSim.amp +
           Math.cos(t * 0.73 + poolSim.phase * 0.5) * (poolSim.amp * 0.42) +
-          noise
-        reportedUsd = poolSim.usdFromSim(next)
+          noise;
+        reportedUsd = poolSim.usdFromSim(next);
       }
 
-      const nextRow = rowForPrice(next, liveMinP, liveMaxP)
+      const nextRow = rowForPrice(next, liveMinP, liveMaxP);
 
       const usdForCoord =
-        live != null && Number.isFinite(live) ? live : poolSim.usdFromSim(next)
-      const spotCoordForMult = chartCoordFromUsd(usdForCoord, poolId as ArenaPoolId)
+        live != null && Number.isFinite(live) ? live : poolSim.usdFromSim(next);
+      const spotCoordForMult = chartCoordFromUsd(
+        usdForCoord,
+        poolId as ArenaPoolId,
+      );
 
-      setCurrentP(next)
-      onPriceUpdate?.(reportedUsd)
-      setHistory(h => {
-        if (!Number.isFinite(next)) return h
-        const lastX = h[h.length - 1]?.x ?? 0
-        return [...h, { x: lastX + 1, p: next }].slice(-120)
-      })
+      setCurrentP(next);
+      onPriceUpdate?.(reportedUsd);
+      setHistory((h) => {
+        if (!Number.isFinite(next)) return h;
+        const lastX = h[h.length - 1]?.x ?? 0;
+        return [...h, { x: lastX + 1, p: next }].slice(-120);
+      });
 
-      const arenaOff = arenaPausedRef.current
+      const arenaOff = arenaPausedRef.current;
       if (!arenaOff) {
         // Advance global scroll. All boxes share the same fractional offset,
         // so they always tile perfectly into integer-wide cells.
-        scrollRef.current += BOX_SPEED
-        const scroll = scrollRef.current
-        setScrollOffset(scroll)
+        scrollRef.current += BOX_SPEED;
+        const scroll = scrollRef.current;
+        setScrollOffset(scroll);
 
         // --- Compute new waves imperatively (outside the state updater). ---
-        const newBoxes: TargetBox[] = []
+        const newBoxes: TargetBox[] = [];
         while (nextLatticeRef.current - scroll <= GRID_COLS + 2) {
-          const lattice = nextLatticeRef.current
+          const lattice = nextLatticeRef.current;
           for (let row = 0; row < GRID_ROWS; row++) {
-            idRef.current += 1
+            idRef.current += 1;
             newBoxes.push({
               id: `t-${idRef.current}`,
               row,
@@ -373,21 +391,21 @@ export function AgentChartCanvas({
               jitter: 0.94 + Math.random() * 0.18,
               resolved: false,
               hit: false,
-            })
+            });
           }
-          nextLatticeRef.current += SPAWN_GAP
+          nextLatticeRef.current += SPAWN_GAP;
         }
 
-        let flashed: { label: string; at: number } | null = null
-        setTargets(prev => {
-          const moved: TargetBox[] = []
+        let flashed: { label: string; at: number } | null = null;
+        setTargets((prev) => {
+          const moved: TargetBox[] = [];
           for (const b of prev) {
-            const effectiveCol = b.lattice - scroll
-            let resolved = b.resolved
-            let hit = b.hit
+            const effectiveCol = b.lattice - scroll;
+            let resolved = b.resolved;
+            let hit = b.hit;
             if (!resolved && effectiveCol <= HEAD_COL) {
-              resolved = true
-              hit = b.row === nextRow
+              resolved = true;
+              hit = b.row === nextRow;
               const lockMult = spawnCellMultiplier(
                 b.row,
                 nextRow,
@@ -395,55 +413,56 @@ export function AgentChartCanvas({
                 poolId,
                 b.jitter,
                 subgraphMultRef.current,
-              )
+              );
               if (hit) {
-                const payout = safeBet > 0 ? (safeBet * lockMult).toFixed(4) : "0.0000"
+                const payout =
+                  safeBet > 0 ? (safeBet * lockMult).toFixed(4) : "0.0000";
                 flashed = {
                   label: `+${payout} ETH · x${lockMult.toFixed(2)}`,
                   at: Date.now(),
-                }
+                };
               }
-              moved.push({ ...b, resolved, hit, lockedMult: lockMult })
-              continue
+              moved.push({ ...b, resolved, hit, lockedMult: lockMult });
+              continue;
             }
-            if (effectiveCol < -0.8) continue
-            moved.push({ ...b, resolved, hit })
+            if (effectiveCol < -0.8) continue;
+            moved.push({ ...b, resolved, hit });
           }
-          if (newBoxes.length > 0) moved.push(...newBoxes)
-          return moved
-        })
-        if (flashed) setHitFlash(flashed)
+          if (newBoxes.length > 0) moved.push(...newBoxes);
+          return moved;
+        });
+        if (flashed) setHitFlash(flashed);
       }
 
-      rafRef.current = requestAnimationFrame(loop)
+      rafRef.current = requestAnimationFrame(loop);
+    };
+
+    rafRef.current = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [paused, onPriceUpdate, safeBet, poolSim]);
+
+  useEffect(() => {
+    if (!hitFlash) return;
+    const tid = window.setTimeout(() => setHitFlash(null), 1800);
+    return () => window.clearTimeout(tid);
+  }, [hitFlash]);
+
+  useEffect(() => {
+    if (!selectedTargetId) return;
+    if (!targets.some((b) => b.id === selectedTargetId)) {
+      onSelectTarget(null);
     }
-
-    rafRef.current = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [paused, onPriceUpdate, safeBet, poolSim])
+  }, [targets, selectedTargetId, onSelectTarget]);
 
   useEffect(() => {
-    if (!hitFlash) return
-    const tid = window.setTimeout(() => setHitFlash(null), 1800)
-    return () => window.clearTimeout(tid)
-  }, [hitFlash])
-
-  useEffect(() => {
-    if (!selectedTargetId) return
-    if (!targets.some(b => b.id === selectedTargetId)) {
-      onSelectTarget(null)
-    }
-  }, [targets, selectedTargetId, onSelectTarget])
-
-  useEffect(() => {
-    if (arenaPaused) return
-    if (!serverArenaFlash?.hit) return
-    const payout = serverArenaFlash.payoutEth.toFixed(4)
+    if (arenaPaused) return;
+    if (!serverArenaFlash?.hit) return;
+    const payout = serverArenaFlash.payoutEth.toFixed(4);
     setHitFlash({
       label: `+${payout} ETH · x${serverArenaFlash.mult.toFixed(2)}`,
       at: serverArenaFlash.at,
-    })
-  }, [arenaPaused, serverArenaFlash?.at])
+    });
+  }, [arenaPaused, serverArenaFlash?.at]);
 
   return (
     <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col rounded-[28px] border-2 border-black/10 bg-white shadow-[0_40px_120px_rgba(0,0,0,0.08)] overflow-hidden">
@@ -460,7 +479,13 @@ export function AgentChartCanvas({
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-          <filter id={cellGlowLightId} x="-60%" y="-60%" width="220%" height="220%">
+          <filter
+            id={cellGlowLightId}
+            x="-60%"
+            y="-60%"
+            width="220%"
+            height="220%"
+          >
             <feGaussianBlur stdDeviation="4" result="b" />
             <feMerge>
               <feMergeNode in="b" />
@@ -487,12 +512,32 @@ export function AgentChartCanvas({
         {/* Grid lines — only on the LEFT (trail) side of the head. The right
             side visuals come entirely from the scrolling numbered boxes. */}
         {Array.from({ length: HEAD_COL + 1 }, (_, i) => {
-          const x = gl + i * cellW
-          return <line key={`v-${i}`} x1={x} y1={gridTop} x2={x} y2={gridBottom} stroke={T.grid} strokeWidth="1" />
+          const x = gl + i * cellW;
+          return (
+            <line
+              key={`v-${i}`}
+              x1={x}
+              y1={gridTop}
+              x2={x}
+              y2={gridBottom}
+              stroke={T.grid}
+              strokeWidth="1"
+            />
+          );
         })}
         {Array.from({ length: GRID_ROWS + 1 }, (_, i) => {
-          const y = gridTop + i * cellH
-          return <line key={`h-${i}`} x1={gl} y1={y} x2={gl + HEAD_COL * cellW} y2={y} stroke={T.gridStrong} strokeWidth="1" />
+          const y = gridTop + i * cellH;
+          return (
+            <line
+              key={`h-${i}`}
+              x1={gl}
+              y1={y}
+              x2={gl + HEAD_COL * cellW}
+              y2={y}
+              stroke={T.gridStrong}
+              strokeWidth="1"
+            />
+          );
         })}
 
         {/* Trail paints first so it sits behind scrolling cells + head dot (SVG paint order). */}
@@ -515,9 +560,9 @@ export function AgentChartCanvas({
         {/* Scrolling target boxes — every lattice index renders exactly one box
             per row, and all boxes share the same fractional scroll offset, so
             they tile perfectly and never overlap each other. */}
-        {targets.map(b => {
+        {targets.map((b) => {
           const jitterSafe =
-            Number.isFinite(b.jitter) && b.jitter > 0 ? b.jitter : 1
+            Number.isFinite(b.jitter) && b.jitter > 0 ? b.jitter : 1;
           const m =
             b.lockedMult ??
             spawnCellMultiplier(
@@ -527,35 +572,38 @@ export function AgentChartCanvas({
               poolId,
               jitterSafe,
               subgraphForMult,
-            )
-          const effectiveCol = b.lattice - scrollOffset
-          const x = gl + effectiveCol * cellW
-          const y = gridTop + b.row * cellH
-          if (x + cellW < gl - cellW || x > chartRight + cellW) return null
-          const isSelected = selectedTargetId === b.id
-          const isAligned = !b.resolved && b.row === activeRow && Math.abs(effectiveCol - HEAD_COL) < 0.6
-          const highlight = isAligned || isSelected
+            );
+          const effectiveCol = b.lattice - scrollOffset;
+          const x = gl + effectiveCol * cellW;
+          const y = gridTop + b.row * cellH;
+          if (x + cellW < gl - cellW || x > chartRight + cellW) return null;
+          const isSelected = selectedTargetId === b.id;
+          const isAligned =
+            !b.resolved &&
+            b.row === activeRow &&
+            Math.abs(effectiveCol - HEAD_COL) < 0.6;
+          const highlight = isAligned || isSelected;
           const fill = b.resolved
             ? b.hit
               ? "rgba(16,185,129,0.18)"
               : "rgba(17,17,17,0.05)"
             : highlight
               ? T.cellActiveFill
-              : "rgba(255,255,255,0.94)"
+              : "rgba(255,255,255,0.94)";
           const stroke = b.resolved
             ? b.hit
               ? "rgba(5,150,105,0.5)"
               : "rgba(17,17,17,0.14)"
             : highlight
               ? T.cellActiveStroke
-              : T.cellIdleStroke
+              : T.cellIdleStroke;
           const textColor = b.resolved
             ? b.hit
               ? "rgba(5,150,105,0.9)"
               : "rgba(17,17,17,0.25)"
             : highlight
               ? T.cellTextActive
-              : "rgba(17,17,17,0.55)"
+              : "rgba(17,17,17,0.55)";
           return (
             <g key={b.id} opacity={b.resolved ? 0.72 : 1}>
               <rect
@@ -567,7 +615,9 @@ export function AgentChartCanvas({
                 fill={fill}
                 stroke={stroke}
                 strokeWidth={highlight ? 1.75 : 1}
-                style={{ filter: highlight ? `url(#${cellGlowLightId})` : undefined }}
+                style={{
+                  filter: highlight ? `url(#${cellGlowLightId})` : undefined,
+                }}
                 className={
                   b.resolved
                     ? ""
@@ -575,10 +625,10 @@ export function AgentChartCanvas({
                       ? "cursor-not-allowed opacity-[0.72]"
                       : "cursor-pointer"
                 }
-                onClick={e => {
-                  if (arenaPaused || b.resolved) return
-                  e.stopPropagation()
-                  onSelectTarget(isSelected ? null : b.id)
+                onClick={(e) => {
+                  if (arenaPaused || b.resolved) return;
+                  e.stopPropagation();
+                  onSelectTarget(isSelected ? null : b.id);
                 }}
               />
               <text
@@ -601,7 +651,11 @@ export function AgentChartCanvas({
                   y={y + cellH - 8}
                   textAnchor="middle"
                   fill="rgba(5,150,105,0.9)"
-                  style={{ fontSize: 10, fontFamily: "ui-monospace, monospace", fontWeight: 700 }}
+                  style={{
+                    fontSize: 10,
+                    fontFamily: "ui-monospace, monospace",
+                    fontWeight: 700,
+                  }}
                 >
                   WIN {(safeBet * m).toFixed(3)}
                 </text>
@@ -612,7 +666,11 @@ export function AgentChartCanvas({
                   y={y + cellH - 8}
                   textAnchor="middle"
                   fill="rgba(5,150,105,0.85)"
-                  style={{ fontSize: 10, fontFamily: "ui-monospace, monospace", fontWeight: 700 }}
+                  style={{
+                    fontSize: 10,
+                    fontFamily: "ui-monospace, monospace",
+                    fontWeight: 700,
+                  }}
                 >
                   HIT
                 </text>
@@ -623,13 +681,17 @@ export function AgentChartCanvas({
                   y={y + cellH - 8}
                   textAnchor="middle"
                   fill="rgba(100, 100, 100, 0.75)"
-                  style={{ fontSize: 9, fontFamily: "ui-monospace, monospace", fontWeight: 600 }}
+                  style={{
+                    fontSize: 9,
+                    fontFamily: "ui-monospace, monospace",
+                    fontWeight: 600,
+                  }}
                 >
                   MISS · no payout
                 </text>
               )}
             </g>
-          )
+          );
         })}
 
         {/* Head column marker */}
@@ -644,13 +706,20 @@ export function AgentChartCanvas({
         />
 
         {/* Head dot */}
-        <circle cx={headX} cy={headY} r={8} fill={T.surface} stroke={T.accent} strokeWidth="3" />
+        <circle
+          cx={headX}
+          cy={headY}
+          r={8}
+          fill={T.surface}
+          stroke={T.accent}
+          strokeWidth="3"
+        />
         <circle cx={headX} cy={headY} r={3} fill={T.accent} />
 
         {/* Price axis labels */}
-        {[0, 0.25, 0.5, 0.75, 1].map(g => {
-          const y = PAD.t + g * (H - PAD.t - PAD.b)
-          const val = minP + (1 - g) * (maxP - minP)
+        {[0, 0.25, 0.5, 0.75, 1].map((g) => {
+          const y = PAD.t + g * (H - PAD.t - PAD.b);
+          const val = minP + (1 - g) * (maxP - minP);
           return (
             <text
               key={g}
@@ -661,20 +730,28 @@ export function AgentChartCanvas({
             >
               {val.toFixed(0)}
             </text>
-          )
+          );
         })}
       </svg>
 
       {hitFlash && (
-        <div className="absolute left-1/2 top-[38%] z-30 -translate-x-1/2 pointer-events-none" key={hitFlash.at}>
+        <div
+          className="absolute left-1/2 top-[38%] z-30 -translate-x-1/2 pointer-events-none"
+          key={hitFlash.at}
+        >
           <div className="rounded-2xl border border-emerald-600/25 bg-emerald-50/95 px-5 py-3 text-center shadow-xl backdrop-blur-sm dashboard-hit-pop">
-            <p className="text-[11px] tracking-[0.2em] text-emerald-800/90 uppercase">Triggered</p>
-            <p className="mt-0.5 text-base font-light text-emerald-950 tabular-nums" style={{ fontFamily: '"IBM Plex Sans", sans-serif' }}>
+            <p className="text-[11px] tracking-[0.2em] text-emerald-800/90 uppercase">
+              Triggered
+            </p>
+            <p
+              className="mt-0.5 text-base font-light text-emerald-950 tabular-nums"
+              style={{ fontFamily: '"IBM Plex Sans", sans-serif' }}
+            >
               {hitFlash.label}
             </p>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }

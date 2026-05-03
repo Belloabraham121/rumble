@@ -16,6 +16,8 @@ export type AgentRunDoc = {
   romboUserIdHex: string
   agentId: string
   arenaPoolId?: string
+  /** Set when the run targeted a user-registered lab pool (mutually exclusive with `arenaPoolId`). */
+  labPoolId?: string
   decision: AgentRunDecision
   summary: string
   detail?: Record<string, unknown>

@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { ArenaPoolId } from "@/lib/agents/arena-pools"
+import type { LabPoolDef } from "@/lib/agents/lab-pools"
 import type { AgentConfig } from "@/lib/agents/agent-types"
 import { chainIdFromSlug } from "@/lib/rombo/chain-config"
 import { resolveTradingTokenAddress } from "@/lib/integrations/uniswap/token-addresses"
@@ -25,12 +26,16 @@ export type BuildAgentQuoteBodyInput = {
   arenaPoolId?: ArenaPoolId
   /** Sell token0 for token1 or the reverse (sorted Uniswap pool order). */
   arenaDirection?: "token0_to_token1" | "token1_to_token0"
+  /** User-deployed lab pool — overrides arena/token resolution when present. */
+  labPool?: LabPoolDef
+  /** Same semantics as `arenaDirection`, applied to the lab pool's sorted currencies. */
+  labPoolDirection?: "token0_to_token1" | "token1_to_token0"
   /** Optional override; defaults to both sides = agent chain. */
   tokenInChainId?: number
   tokenOutChainId?: number
   /** One of `slippageTolerance` (number) or `autoSlippage` — we send slippage from agent config. */
   autoSlippage?: "DEFAULT"
-  /** Limit routing to specific protocols (e.g. `["V3","V4"]`). */
+  /** Override routing protocols; default is V4-only (see `buildAgentQuoteRequestBody`). */
   protocols?: string[]
   routingPreference?: "BEST_PRICE" | "FASTEST"
 }
@@ -48,7 +53,17 @@ export function buildAgentQuoteRequestBody(input: BuildAgentQuoteBodyInput): Rec
   let tokenIn: string | undefined
   let tokenOut: string | undefined
 
-  if (input.arenaPoolId && input.arenaDirection) {
+  if (input.labPool && input.labPoolDirection) {
+    const { token0, token1 } = input.labPool
+    tokenIn =
+      input.labPoolDirection === "token0_to_token1"
+        ? token0.address.toLowerCase()
+        : token1.address.toLowerCase()
+    tokenOut =
+      input.labPoolDirection === "token0_to_token1"
+        ? token1.address.toLowerCase()
+        : token0.address.toLowerCase()
+  } else if (input.arenaPoolId && input.arenaDirection) {
     const pool = getArenaPoolOnChain(input.arenaPoolId, input.config.chain)
     if (!pool) {
       throw new Error(
@@ -102,13 +117,11 @@ export function buildAgentQuoteRequestBody(input: BuildAgentQuoteBodyInput): Rec
     body.slippageTolerance = slippageTolerance
   }
 
-  /* Default to AMM pool routing only. Omitting `protocols` lets the API consider
-   * UniswapX (UNISWAPX_*) on L2, which enforces high minimum trade sizes — small
-   * agent notionals then return 404 "no quotes". */
+  /* Rombo trades through Uniswap v4 pools only (Trading API `protocols`). */
   if (input.protocols && input.protocols.length > 0) {
     body.protocols = input.protocols
   } else {
-    body.protocols = ["V2", "V3", "V4"]
+    body.protocols = ["V4"]
   }
 
   return body

@@ -2,17 +2,27 @@ import type { ArenaPoolId } from "@/lib/agents/arena-pools"
 import { getTradableArenaPools } from "@/lib/agents/arena-pools"
 import { chartCoordFromUsd } from "@/lib/agents/runtime/chart-coord"
 import type { AgentConfig } from "@/lib/agents/agent-types"
+import type { LabPoolDef } from "@/lib/agents/lab-pools"
 import type { PriceBox } from "@/components/dashboard/types"
 import { resolveTradingTokenAddress } from "@/lib/integrations/uniswap/token-addresses"
 import { getArenaPoolOnChain } from "@/lib/trading/arena-pool-onchain"
 
 export type SwapArenaDirection = "token0_to_token1" | "token1_to_token0"
 
+/**
+ * Decision target — either a canonical arena pool (`arenaPoolId`) or a user's
+ * lab pool (`labPoolId` + a snapshot of `LabPoolDef`). Exactly one side is set
+ * in each decision so downstream code can branch without re-parsing.
+ */
+export type DecisionTarget =
+  | { kind: "arena"; arenaPoolId: ArenaPoolId }
+  | { kind: "lab"; labPoolId: string; labPool: LabPoolDef }
+
 export type RuntimeDecision =
-  | { type: "skip"; reason: string }
+  | { type: "skip"; reason: string; target?: DecisionTarget }
   | {
       type: "swap"
-      arenaPoolId: ArenaPoolId
+      target: DecisionTarget
       boxId: string
       direction: SwapArenaDirection
       /** ERC-20 / native amount in smallest units (decimal string). */
@@ -20,7 +30,7 @@ export type RuntimeDecision =
     }
   | {
       type: "lp_increase"
-      arenaPoolId: ArenaPoolId
+      target: DecisionTarget
       boxId: string
       reason: string
       chartLow: number
@@ -29,7 +39,7 @@ export type RuntimeDecision =
     }
   | {
       type: "lp_decrease"
-      arenaPoolId: ArenaPoolId
+      target: DecisionTarget
       boxId: string
       reason: string
       chartLow: number
@@ -144,6 +154,24 @@ export function computeNotionalAmount(config: AgentConfig, box: PriceBox, arenaP
 }
 
 /**
+ * Lab-pool notional sizing — uses `tokenIn.decimals` from the pool so the
+ * smallest-unit `amount` matches the ERC-20 / native side we are spending.
+ */
+export function computeNotionalAmountForLabPool(
+  config: AgentConfig,
+  box: PriceBox,
+  labPool: LabPoolDef,
+  direction: SwapArenaDirection,
+): string {
+  const bet = Number.parseFloat(config.betAmount) || 0
+  const boxPct = parsePercent(box.amountPercent, 33) / 100
+  const maxPos = parsePercent(config.maxPositionPercent, 25) / 100
+  const raw = bet * boxPct * maxPos
+  const tokenIn = direction === "token0_to_token1" ? labPool.token0 : labPool.token1
+  return humanAmountToBaseUnits(raw, tokenIn.decimals)
+}
+
+/**
  * Build swap/LP decision from a price box that already matches current spot (coordinate space).
  * Action type (swap vs LP) comes from the stored box — not from the LLM.
  */
@@ -163,11 +191,13 @@ export function decisionForMatchedBox(
     return { type: "skip", reason: "zero_notional" }
   }
 
+  const target: DecisionTarget = { kind: "arena", arenaPoolId }
+
   switch (hit.action) {
     case "swap":
       return {
         type: "swap",
-        arenaPoolId,
+        target,
         boxId: hit.id,
         direction: swapDirectionForArena(arenaPoolId, config.chain),
         amount,
@@ -175,7 +205,7 @@ export function decisionForMatchedBox(
     case "add_liquidity":
       return {
         type: "lp_increase",
-        arenaPoolId,
+        target,
         boxId: hit.id,
         reason: "box_action",
         chartLow: hit.low,
@@ -185,7 +215,59 @@ export function decisionForMatchedBox(
     case "remove_liquidity":
       return {
         type: "lp_decrease",
-        arenaPoolId,
+        target,
+        boxId: hit.id,
+        reason: "box_action",
+        chartLow: hit.low,
+        chartHigh: hit.high,
+        amountPercent: hit.amountPercent,
+      }
+    default:
+      return { type: "skip", reason: "unknown_box_action" }
+  }
+}
+
+/**
+ * Same shape as `decisionForMatchedBox` but sized to a user's lab pool. Lab pools
+ * skip the arena `approvedTokens` symbol whitelist (the user explicitly opted-in
+ * to this pool when registering it for the agent).
+ */
+export function decisionForMatchedLabBox(
+  hit: PriceBox,
+  labPool: LabPoolDef,
+  config: AgentConfig,
+  direction: SwapArenaDirection,
+): RuntimeDecision {
+  const amount = computeNotionalAmountForLabPool(config, hit, labPool, direction)
+  if (amount === "0") {
+    return { type: "skip", reason: "zero_notional" }
+  }
+
+  const target: DecisionTarget = { kind: "lab", labPoolId: labPool.labPoolId, labPool }
+
+  switch (hit.action) {
+    case "swap":
+      return {
+        type: "swap",
+        target,
+        boxId: hit.id,
+        direction,
+        amount,
+      }
+    case "add_liquidity":
+      return {
+        type: "lp_increase",
+        target,
+        boxId: hit.id,
+        reason: "box_action",
+        chartLow: hit.low,
+        chartHigh: hit.high,
+        amountPercent: hit.amountPercent,
+      }
+    case "remove_liquidity":
+      return {
+        type: "lp_decrease",
+        target,
         boxId: hit.id,
         reason: "box_action",
         chartLow: hit.low,

@@ -44,10 +44,12 @@ export async function uniswapQuote(
   headers?: UniswapTradingHeaders,
 ): Promise<unknown> {
   const initHeaders = mergeTradingHeaders(new Headers(), headers)
+  /** Product policy: pool swaps route via Uniswap v4 only (ignore client `protocols`). */
+  const bodyV4Only: Record<string, unknown> = { ...body, protocols: ["V4"] }
   const res = await fetchUniswap(`${UNISWAP_TRADING_API_BASE}/quote`, {
     method: "POST",
     headers: initHeaders,
-    body: JSON.stringify(body),
+    body: JSON.stringify(bodyV4Only),
   })
   return readUniswapJsonOrThrow(res)
 }

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
+import { maybePersistLabPoolFromNewPoolCreate } from "@/lib/api/lab-pool-persist"
 import { maybePersistLpPositionFromLiquidityResponse } from "@/lib/api/liquidity-persist"
 import { getTradingAuditIdentity, logTradingAudit } from "@/lib/api/trading-audit"
-import { stripTradingRequestMeta } from "@/lib/api/trading-meta"
+import { stripLiquidityRequestMeta } from "@/lib/api/trading-meta"
 import type { TradingAttemptKind } from "@/lib/db/trading.repo"
 import { RomboUniswapError } from "@/lib/integrations/uniswap/errors"
 import {
@@ -65,9 +66,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ action: string
   let payload: Record<string, unknown> | undefined
 
   try {
-    payload = stripTradingRequestMeta(raw) as Record<string, unknown>
+    payload = stripLiquidityRequestMeta(raw) as Record<string, unknown>
 
-    const data = await withUniswapRetry(() => entry.call(payload))
+    const data = await withUniswapRetry(() => entry.call(payload!))
 
     logTradingAudit({
       identity,
@@ -87,6 +88,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ action: string
       response: data,
     })
 
+    await maybePersistLabPoolFromNewPoolCreate({
+      romboUserIdHex: identity.romboUserIdHex,
+      action,
+      payload,
+      response: data,
+    })
+
     return NextResponse.json(data)
   } catch (e) {
     console.error(`[liquidity/${action}]`, e)
@@ -96,7 +104,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ action: string
       kind: entry.kind,
       agentId,
       idempotencyKey,
-      payload: payload ?? stripTradingRequestMeta(raw),
+      payload: payload ?? stripLiquidityRequestMeta(raw),
       error: e,
     })
 
